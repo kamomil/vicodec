@@ -25,6 +25,7 @@ struct v4l2_fwht_state {
 	const struct v4l2_fwht_pixfmt_info *info;
 	unsigned int width;
 	unsigned int height;
+	unsigned int stride;
 	unsigned int gop_size;
 	unsigned int gop_cnt;
 	u16 i_frame_qp;
