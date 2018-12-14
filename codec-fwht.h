@@ -53,7 +53,6 @@
  *
  * Note that these two magic values are symmetrical so endian issues here.
  */
-#include <linux/videodev2.h>
 #define FWHT_MAGIC1 0x4f4f4f4f
 #define FWHT_MAGIC2 0xffffffff
 
@@ -132,7 +131,5 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 		      bool is_intra, bool next_is_intra);
 void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
 		       u32 hdr_flags, unsigned int components_num, unsigned int stride);
-
-const char* id_fmt_to_str(u32 id);
 
 #endif

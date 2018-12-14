@@ -11,7 +11,7 @@
 
 #include <linux/string.h>
 #include "codec-fwht.h"
-#include <linux/videodev2.h>
+
 /*
  * Note: bit 0 of the header must always be 0. Otherwise it cannot
  * be guaranteed that the magic 8 byte sequence (see below) can
@@ -24,29 +24,6 @@
 #define IBLOCK 1
 
 #define ALL_ZEROS 15
-
-const char* id_fmt_to_str(u32 id){
-
-	switch(id) {
-		case V4L2_PIX_FMT_YUV420:
-			return "V4L2_PIX_FMT_YUV420";
-		case V4L2_PIX_FMT_YVU420:
-			return "V4L2_PIX_FMT_YVU420";
-		case V4L2_PIX_FMT_YUV422P:
-			return "V4L2_PIX_FMT_YUV422P";
-		case V4L2_PIX_FMT_BGR24:
-			return "V4L2_PIX_FMT_BGR24";
-		case V4L2_PIX_FMT_RGB24:
-			return "V4L2_PIX_FMT_RGB24";
-		case V4L2_PIX_FMT_ARGB32:
-			return "V4L2_PIX_FMT_ARGB32";
-		case V4L2_PIX_FMT_ABGR32:
-			return "V4L2_PIX_FMT_ABGR32";
-		case V4L2_PIX_FMT_GREY:
-			return "V4L2_PIX_FMT_GREY";
-	}
-	return "not set";
-};
 
 static const uint8_t zigzag[64] = {
 	0,
@@ -694,14 +671,11 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 	unsigned int last_size = 0;
 	unsigned int i, j;
 
-	pr_info("dafna: %s: start w=%u h=%u\n",__func__,width,height);
 	for (j = 0; j < height / 8; j++) {
-		pr_info("%s: dafna: j=%u *input=%u\n",__func__,j,*input);
 		for (i = 0; i < width / 8; i++) {
 			/* intra code, first frame is always intra coded. */
 			int blocktype = IBLOCK;
 			unsigned int size;
-
 
 			if (!is_intra)
 				blocktype = decide_blocktype(input, refp,
@@ -753,7 +727,6 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 
 exit_loop:
 	if (encoding & FWHT_FRAME_UNENCODED) {
-		pr_info("dafna: %s: plane unencoded\n",__func__);
 		u8 *out = (u8 *)rlco_start;
 
 		input = input_start;
@@ -768,7 +741,6 @@ exit_loop:
 		*rlco = (__be16 *)out;
 		encoding &= ~FWHT_FRAME_PCODED;
 	}
-	pr_info("dafna: %s: end\n",__func__);
 	return encoding;
 }
 
@@ -781,6 +753,7 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 	__be16 *rlco = cf->rlc_data;
 	__be16 *rlco_max;
 	u32 encoding;
+
 	rlco_max = rlco + size / 2 - 256;
 	encoding = encode_plane(frm->luma, ref_frm->luma, &rlco, rlco_max, cf,
 				frm->height, frm->width, frm->stride,
@@ -815,7 +788,7 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 
 	if (frm->components_num == 4) {
 		rlco_max = rlco + size / 2 - 256;
-		encoding = encode_plane(frm->alpha, ref_frm->alpha, &rlco,
+		encoding |= encode_plane(frm->alpha, ref_frm->alpha, &rlco,
 					rlco_max, cf, frm->height, frm->width,
 					frm->stride, frm->luma_alpha_step,
 					is_intra, next_is_intra);
@@ -823,6 +796,7 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 			encoding |= FWHT_ALPHA_UNENCODED;
 		encoding &= ~FWHT_FRAME_UNENCODED;
 	}
+
 	cf->size = (rlco - cf->rlc_data) * sizeof(*rlco);
 	return encoding;
 }

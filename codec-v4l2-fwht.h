@@ -26,6 +26,7 @@ struct v4l2_fwht_state {
 	unsigned int width;
 	unsigned int height;
 	unsigned int stride;
+	unsigned int padded_height;
 	unsigned int gop_size;
 	unsigned int gop_cnt;
 	u16 i_frame_qp;
