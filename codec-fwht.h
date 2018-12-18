@@ -53,6 +53,7 @@
  *
  * Note that these two magic values are symmetrical so endian issues here.
  */
+#include <linux/videodev2.h>
 #define FWHT_MAGIC1 0x4f4f4f4f
 #define FWHT_MAGIC2 0xffffffff
 
@@ -81,7 +82,11 @@
 #define FWHT_FL_COMPONENTS_NUM_MSK	GENMASK(17, 16)
 #define FWHT_FL_COMPONENTS_NUM_OFFSET	16
 
-#define vic_round_dim(dim, div) round_up(dim / div, 8) * div
+/* A macro to calculate the needed padding in order to make sure
+ * both luma and chroma components resolutions are rounded up to
+ * closest multiple of 8
+ */
+#define vic_round_dim(dim, div) (round_up((dim) / (div), 8) * (div))
 
 struct fwht_cframe_hdr {
 	u32 magic1;
@@ -131,5 +136,7 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 		      bool is_intra, bool next_is_intra);
 void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
 		       u32 hdr_flags, unsigned int components_num, unsigned int stride);
+
+const char* id_fmt_to_str(u32 id);
 
 #endif

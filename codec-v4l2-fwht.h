@@ -23,8 +23,8 @@ struct v4l2_fwht_pixfmt_info {
 
 struct v4l2_fwht_state {
 	const struct v4l2_fwht_pixfmt_info *info;
-	unsigned int width;
-	unsigned int height;
+	unsigned int visible_width;
+	unsigned int visible_height;
 	unsigned int stride;
 	unsigned int padded_height;
 	unsigned int gop_size;

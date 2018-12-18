@@ -11,6 +11,7 @@
 
 #include <linux/string.h>
 #include "codec-fwht.h"
+#include <linux/videodev2.h>
 
 /*
  * Note: bit 0 of the header must always be 0. Otherwise it cannot
@@ -24,6 +25,29 @@
 #define IBLOCK 1
 
 #define ALL_ZEROS 15
+
+const char* id_fmt_to_str(u32 id){
+
+	switch(id) {
+		case V4L2_PIX_FMT_YUV420:
+			return "V4L2_PIX_FMT_YUV420";
+		case V4L2_PIX_FMT_YVU420:
+			return "V4L2_PIX_FMT_YVU420";
+		case V4L2_PIX_FMT_YUV422P:
+			return "V4L2_PIX_FMT_YUV422P";
+		case V4L2_PIX_FMT_BGR24:
+			return "V4L2_PIX_FMT_BGR24";
+		case V4L2_PIX_FMT_RGB24:
+			return "V4L2_PIX_FMT_RGB24";
+		case V4L2_PIX_FMT_ARGB32:
+			return "V4L2_PIX_FMT_ARGB32";
+		case V4L2_PIX_FMT_ABGR32:
+			return "V4L2_PIX_FMT_ABGR32";
+		case V4L2_PIX_FMT_GREY:
+			return "V4L2_PIX_FMT_GREY";
+	}
+	return "not set";
+};
 
 static const uint8_t zigzag[64] = {
 	0,
@@ -671,7 +695,13 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 	unsigned int last_size = 0;
 	unsigned int i, j;
 
+	pr_info("dafna: %s: start w=%u h=%u\n",__func__,width,height);
+	width = round_up(width, 8);
+	height = round_up(height, 8);
+
 	for (j = 0; j < height / 8; j++) {
+		//pr_info("%s: dafna: j=%u *input=%u\n",__func__,j,*input);
+		input = input_start + j * 8 * stride * input_step;
 		for (i = 0; i < width / 8; i++) {
 			/* intra code, first frame is always intra coded. */
 			int blocktype = IBLOCK;
@@ -722,13 +752,13 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 			}
 			last_size = size;
 		}
-		input += (stride - width/8) * 8 * input_step;
 	}
 
 exit_loop:
 	if (encoding & FWHT_FRAME_UNENCODED) {
 		u8 *out = (u8 *)rlco_start;
 
+		pr_info("dafna: %s: plane unencoded\n",__func__);
 		input = input_start;
 		/*
 		 * The compressed stream should never contain the magic
@@ -741,6 +771,7 @@ exit_loop:
 		*rlco = (__be16 *)out;
 		encoding &= ~FWHT_FRAME_PCODED;
 	}
+	pr_info("dafna: %s: end\n",__func__);
 	return encoding;
 }
 
@@ -765,12 +796,12 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 	if (frm->components_num >= 3) {
 		u32 chroma_h = frm->height / frm->height_div;
 		u32 chroma_w = frm->width / frm->width_div;
-		u32 stride = frm->stride / frm->width_div;
+		u32 chroma_stride = frm->stride / frm->width_div;
 		unsigned int chroma_size = chroma_h * chroma_w;
 
 		rlco_max = rlco + chroma_size / 2 - 256;
 		encoding |= encode_plane(frm->cb, ref_frm->cb, &rlco, rlco_max,
-					 cf, chroma_h, chroma_w, stride,
+					 cf, chroma_h, chroma_w, chroma_stride,
 					 frm->chroma_step,
 					 is_intra, next_is_intra);
 		if (encoding & FWHT_FRAME_UNENCODED)
@@ -778,7 +809,7 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 		encoding &= ~FWHT_FRAME_UNENCODED;
 		rlco_max = rlco + chroma_size / 2 - 256;
 		encoding |= encode_plane(frm->cr, ref_frm->cr, &rlco, rlco_max,
-					 cf, chroma_h, chroma_w, stride,
+					 cf, chroma_h, chroma_w, chroma_stride,
 					 frm->chroma_step,
 					 is_intra, next_is_intra);
 		if (encoding & FWHT_FRAME_UNENCODED)
@@ -789,9 +820,9 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 	if (frm->components_num == 4) {
 		rlco_max = rlco + size / 2 - 256;
 		encoding |= encode_plane(frm->alpha, ref_frm->alpha, &rlco,
-					rlco_max, cf, frm->height, frm->width,
-					frm->stride, frm->luma_alpha_step,
-					is_intra, next_is_intra);
+					 rlco_max, cf, frm->height, frm->width,
+					 frm->stride, frm->luma_alpha_step,
+					 is_intra, next_is_intra);
 		if (encoding & FWHT_FRAME_UNENCODED)
 			encoding |= FWHT_ALPHA_UNENCODED;
 		encoding &= ~FWHT_FRAME_UNENCODED;
@@ -814,6 +845,8 @@ static void decode_plane(struct fwht_cframe *cf, const __be16 **rlco, u8 *ref,
 		*rlco += width * height / 2;
 		return;
 	}
+	width = round_up(width, 8);
+	height = round_up(height, 8);
 
 	/*
 	 * When decoding each macroblock the rlco pointer will be increased
@@ -866,6 +899,7 @@ void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
 		u32 h = cf->height;
 		u32 w = cf->width;
 		u32 s = stride;
+
 		if (!(hdr_flags & FWHT_FL_CHROMA_FULL_HEIGHT))
 			h /= 2;
 		if (!(hdr_flags & FWHT_FL_CHROMA_FULL_WIDTH)) {
