@@ -237,7 +237,6 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	p_hdr->ycbcr_enc = htonl(state->ycbcr_enc);
 	p_hdr->quantization = htonl(state->quantization);
 	p_hdr->size = htonl(cf.size);
-
 	return cf.size + sizeof(*p_hdr);
 }
 
@@ -304,7 +303,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	pr_info("dafna: %s, b-l = %lu, r-b = %lu\n",__func__, state->ref_frame.cb - state->ref_frame.luma, state->ref_frame.cr - state->ref_frame.cb);
 
 	fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
-			   state->visible_width, state->visible_height, state->coded_width);
+			  state->visible_width, state->visible_height, state->coded_width);
 
 	pr_info("%s: plane uncompressed : luma: %s cr: %s, cr: %s\n",__func__, flags & FWHT_FL_LUMA_IS_UNCOMPRESSED ? "yes" : "no",
 			flags & FWHT_FL_CR_IS_UNCOMPRESSED ? "yes" : "no",

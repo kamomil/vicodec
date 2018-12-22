@@ -700,7 +700,6 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 	pr_info("dafna: %s: start w=%u h=%u\n",__func__,width,height);
 
 	for (j = 0; j < height / 8; j++) {
-		//pr_info("%s: dafna: j=%u *input=%u\n",__func__,j,*input);
 		input = input_start + j * 8 * coded_width * input_step;
 		for (i = 0; i < width / 8; i++) {
 			/* intra code, first frame is always intra coded. */
@@ -900,17 +899,17 @@ void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
 	if (components_num >= 3) {
 		u32 h = height;
 		u32 w = width;
-		u32 s = coded_width;
+		u32 c = coded_width;
 
 		if (!(hdr_flags & FWHT_FL_CHROMA_FULL_HEIGHT))
 			h /= 2;
 		if (!(hdr_flags & FWHT_FL_CHROMA_FULL_WIDTH)) {
 			w /= 2;
-			s /= 2;
+			c /= 2;
 		}
-		decode_plane(cf, &rlco, ref->cb, h, w, s,
+		decode_plane(cf, &rlco, ref->cb, h, w, c,
 			     hdr_flags & FWHT_FL_CB_IS_UNCOMPRESSED);
-		decode_plane(cf, &rlco, ref->cr, h, w, s,
+		decode_plane(cf, &rlco, ref->cr, h, w, c,
 			     hdr_flags & FWHT_FL_CR_IS_UNCOMPRESSED);
 	}
 

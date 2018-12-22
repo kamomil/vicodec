@@ -322,8 +322,6 @@ restart:
 			copy = sizeof(magic) - ctx->comp_magic_cnt;
 			if (p_src + sz - p < copy)
 				copy = p_src + sz - p;
-
-
 			pr_info("dafna: %s copying %u to compressed_frame\n", __func__,copy);
 
 			memcpy(ctx->state.compressed_frame + ctx->comp_magic_cnt,
@@ -807,9 +805,9 @@ static int vidioc_g_selection(struct file *file, void *priv,
 	 * encoder supports only cropping on the OUTPUT buffer
 	 * decoder supports only composing on the CAPTURE buffer
 	 */
-	if((ctx->is_enc && s->type == V4L2_BUF_TYPE_VIDEO_OUTPUT) ||
-	   (!ctx->is_enc && s->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)) {
-		switch(s->target) {
+	if ((ctx->is_enc && s->type == V4L2_BUF_TYPE_VIDEO_OUTPUT) ||
+	    (!ctx->is_enc && s->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)) {
+		switch (s->target) {
 		case V4L2_SEL_TGT_COMPOSE:
 		case V4L2_SEL_TGT_CROP:
 			s->r.left = 0;
@@ -851,7 +849,6 @@ static int vidioc_s_selection(struct file *file, void *priv,
 				s->type == V4L2_BUF_TYPE_VIDEO_CAPTURE &&
 				s->target == V4L2_SEL_TGT_COMPOSE;
 
-	/* encoder supports only cropping on the OUTPUT buffer */
 	if (is_out_crop_on_enc || is_cap_compose_on_dec) {
 		s->r.left = 0;
 		s->r.top = 0;
@@ -1103,8 +1100,7 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	struct vicodec_q_data *q_data = get_q_data(ctx, q->type);
 	struct v4l2_fwht_state *state = &ctx->state;
 	const struct v4l2_fwht_pixfmt_info *info = q_data->info;
-	unsigned int size = vic_round_dim(q_data->coded_width, info->width_div) *
-		vic_round_dim(q_data->coded_height, info->height_div);
+	unsigned int size = q_data->coded_width * q_data->coded_height;
 	unsigned int chroma_div = info->width_div * info->height_div;
 	unsigned int total_planes_size;
 
@@ -1121,19 +1117,18 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 
 	q_data->sequence = 0;
 
-	pr_info("dafna: %s buffer type: %s, codec type: %s\n",__func__, V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP", ctx->is_enc ? "enc" : "dec");
-	pr_info("dafna: %s coded width = %u coded height = %u \n",__func__, q_data->coded_width, q_data->coded_height);
+	pr_info("dafna: %s buffer type: %s, codec type: %s\n", __func__, V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP", ctx->is_enc ? "enc" : "dec");
+	pr_info("dafna: %s coded width = %u coded height = %u \n", __func__, q_data->coded_width, q_data->coded_height);
 
-	pr_info("dafna: %s rounded width = %u\n",__func__, vic_round_dim(q_data->coded_width, info->width_div));
+	pr_info("dafna: %s rounded width = %u\n", __func__, vic_round_dim(q_data->coded_width, info->width_div));
 
 	if (!V4L2_TYPE_IS_OUTPUT(q->type)) {
 		if (!ctx->is_enc) {
-			pr_info("dafna: setting state to width,height = %u,%u\n",q_data->coded_width, q_data->coded_height);
 			state->visible_width = q_data->visible_width;
 			state->visible_height = q_data->visible_height;
 			state->coded_width = q_data->coded_width;
 			state->coded_height = q_data->coded_height;
-
+			pr_info("dafna: state visible = %ux%u, coded = %ux%u\n", state->visible_width, state->visible_height, state->coded_width, state->coded_height);
 		}
 		pr_info("dafna: returning without allocation\n");
 		return 0;
@@ -1145,6 +1140,7 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 		state->visible_height = q_data->visible_height;
 		state->coded_width = q_data->coded_width;
 		state->coded_height = q_data->coded_height;
+		pr_info("dafna: state visible = %ux%u, coded = %ux%u\n", state->visible_width, state->visible_height, state->coded_width, state->coded_height);
 	}
 	pr_info("dafna: %s size = %u\n",__func__, size);
 	state->ref_frame.luma = kvmalloc(total_planes_size, GFP_KERNEL);

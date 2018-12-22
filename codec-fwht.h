@@ -121,6 +121,7 @@ struct fwht_raw_frame {
 	u8 *luma, *cb, *cr, *alpha;
 };
 
+const char* id_fmt_to_str(u32 id);
 #define FWHT_FRAME_PCODED	BIT(0)
 #define FWHT_FRAME_UNENCODED	BIT(1)
 #define FWHT_LUMA_UNENCODED	BIT(2)
@@ -136,7 +137,5 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
 		       u32 hdr_flags, unsigned int components_num,
 		       unsigned int width, unsigned int height, unsigned int coded_width);
-
-const char* id_fmt_to_str(u32 id);
 
 #endif
