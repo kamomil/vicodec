@@ -68,10 +68,8 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	if (!info)
 		return -EINVAL;
 
-	size = state->stride * state->padded_height;
-	rf.width = state->visible_width;
-	rf.height = state->visible_height;
-	rf.stride = state->stride;
+	size = state->coded_width * state->coded_height;
+	rf.coded_width = state->coded_width;
 	rf.luma = p_in;
 	rf.width_div = info->width_div;
 	rf.height_div = info->height_div;
@@ -80,16 +78,15 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	rf.alpha = NULL;
 	rf.components_num = info->components_num;
 
-	unsigned int padded_height = state->padded_height;
-	unsigned int stride = state->stride;
-	pr_info("dafna: %s: V4L2_PIX_FMT is %u stride = %u, padded_height = %u\n",__func__, info->id,stride, padded_height);
+
+	pr_info("dafna: %s: V4L2_PIX_FMT is %u coded wxh: %ux%u\n",__func__, info->id,state->coded_width, state->coded_height);
 	pr_info("dafna: %s: rf.luma_alpha_step = %u size = %u\n",__func__, rf.luma_alpha_step, size);
 	pr_info("dafna: %s: p_in[0] = %u\n",__func__, p_in[0]);
 	pr_info("dafna: %s: p_in[1] = %u\n",__func__, p_in[1]);
 
-	pr_info("dafna: %s: p_in[stride*%u*1] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*stride*1]);
-	pr_info("dafna: %s: p_in[stride*%u*2] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*stride*2]);
-	pr_info("dafna: %s: p_in[stride*%u*3] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*stride*3]);
+	pr_info("dafna: %s: p_in[s*%u*1] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*1]);
+	pr_info("dafna: %s: p_in[s*%u*2] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*2]);
+	pr_info("dafna: %s: p_in[s*%u*3] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*3]);
 
 	switch (info->id) {
 	case V4L2_PIX_FMT_GREY:
@@ -177,25 +174,22 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	default:
 		return -EINVAL;
 	}
-	pr_info("dafna: %s: rf.luma[stride*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*stride*1]);
-	pr_info("dafna: %s: rf.luma[stride*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*stride*2]);
-	pr_info("dafna: %s: rf.luma[stride*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*stride*3]);
+	pr_info("dafna: %s: rf.luma[s*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*state->coded_width*1]);
+	pr_info("dafna: %s: rf.luma[s*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*state->coded_width*2]);
+	pr_info("dafna: %s: rf.luma[s*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*state->coded_width*3]);
 
 	if(info->id == V4L2_PIX_FMT_YUV420) {
 		pr_info("dafna: %s: rf.cb[0] = %u\n",__func__, rf.cb[0]);
-		pr_info("dafna: %s: rf.cb[s/2*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.cb[rf.luma_alpha_step*(stride/2)*1]);
-		pr_info("dafna: %s: rf.cb[s/2*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.cb[rf.luma_alpha_step*(stride/2)*2]);
-		pr_info("dafna: %s: rf.cb[s/2*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.cb[rf.luma_alpha_step*(stride/2)*3]);
+		pr_info("dafna: %s: rf.cb[s/2*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.cb[rf.luma_alpha_step*(state->coded_width/2)*1]);
+		pr_info("dafna: %s: rf.cb[s/2*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.cb[rf.luma_alpha_step*(state->coded_width/2)*2]);
+		pr_info("dafna: %s: rf.cb[s/2*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.cb[rf.luma_alpha_step*(state->coded_width/2)*3]);
 
 		pr_info("dafna: %s: rf.cr[0] = %u\n",__func__, rf.cr[0]);
-		pr_info("dafna: %s: rf.cr[s/2*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(stride/2)*1]);
-		pr_info("dafna: %s: rf.cr[s/2*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(stride/2)*2]);
-		pr_info("dafna: %s: rf.cr[s/2*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(stride/2)*3]);
+		pr_info("dafna: %s: rf.cr[s/2*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(state->coded_width/2)*1]);
+		pr_info("dafna: %s: rf.cr[s/2*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(state->coded_width/2)*2]);
+		pr_info("dafna: %s: rf.cr[s/2*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(state->coded_width/2)*3]);
 	}
 
-
-	cf.width = state->visible_width;
-	cf.height = state->visible_height;
 	cf.i_frame_qp = state->i_frame_qp;
 	cf.p_frame_qp = state->p_frame_qp;
 	cf.rlc_data = (__be16 *)(p_out + sizeof(*p_hdr));
@@ -205,7 +199,8 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 
 	encoding = fwht_encode_frame(&rf, &state->ref_frame, &cf,
 				     !state->gop_cnt,
-				     state->gop_cnt == state->gop_size - 1);
+				     state->gop_cnt == state->gop_size - 1,
+				     state->visible_width, state->visible_height);
 	if (!(encoding & FWHT_FRAME_PCODED))
 		state->gop_cnt = 0;
 	if (++state->gop_cnt >= state->gop_size)
@@ -215,8 +210,8 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	p_hdr->magic1 = FWHT_MAGIC1;
 	p_hdr->magic2 = FWHT_MAGIC2;
 	p_hdr->version = htonl(FWHT_VERSION);
-	p_hdr->width = htonl(cf.width);
-	p_hdr->height = htonl(cf.height);
+	p_hdr->width = htonl(state->visible_width);
+	p_hdr->height = htonl(state->visible_height);
 	flags |= (info->components_num - 1) << FWHT_FL_COMPONENTS_NUM_OFFSET;
 	if (encoding & FWHT_LUMA_UNENCODED)
 		flags |= FWHT_FL_LUMA_IS_UNCOMPRESSED;
@@ -242,8 +237,7 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	p_hdr->ycbcr_enc = htonl(state->ycbcr_enc);
 	p_hdr->quantization = htonl(state->quantization);
 	p_hdr->size = htonl(cf.size);
-	state->ref_frame.width = cf.width;
-	state->ref_frame.height = cf.height;
+
 	return cf.size + sizeof(*p_hdr);
 }
 
@@ -265,11 +259,9 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		return -EINVAL;
 
 	info = state->info;
-	size = state->stride * state->padded_height;
+	size = state->coded_width * state->coded_height;
 	chroma_size = size;
 	p_hdr = (struct fwht_cframe_hdr *)p_in;
-	cf.width = ntohl(p_hdr->width);
-	cf.height = ntohl(p_hdr->height);
 
 	version = ntohl(p_hdr->version);
 	if (!version || version > FWHT_VERSION) {
@@ -282,13 +274,11 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	    p_hdr->magic2 != FWHT_MAGIC2)
 		return -EINVAL;
 
-	unsigned int stride = state->stride;
-	unsigned int padded_height = state->padded_height;
-	pr_info("dafna: %s cf.width %u state->visible_width %u cf.height %u state->visible_height %u stride = %u\n",
-			__func__,cf.width, state->visible_width, cf.height, state->visible_height,stride);
+	pr_info("dafna: %s state->visible_width %u state->visible_height %u stride = %u\n",
+			__func__, state->visible_width, state->visible_height,state->coded_width);
 
 	/* TODO: support resolution changes */
-	if (cf.width != state->visible_width || cf.height != state->visible_height)
+	if (ntohl(p_hdr->width) != state->visible_width || ntohl(p_hdr->height) != state->visible_height)
 		return -EINVAL;
 
 	flags = ntohl(p_hdr->flags);
@@ -313,7 +303,8 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	pr_info("dafna: %s, ref_frame.luma = %p, ref_frame.cb = %p, ref_frame.cr = %p\n",__func__, state->ref_frame.luma, state->ref_frame.cb, state->ref_frame.cr);
 	pr_info("dafna: %s, b-l = %lu, r-b = %lu\n",__func__, state->ref_frame.cb - state->ref_frame.luma, state->ref_frame.cr - state->ref_frame.cb);
 
-	fwht_decode_frame(&cf, &state->ref_frame, flags, components_num, state->stride);
+	fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
+			   state->visible_width, state->visible_height, state->coded_width);
 
 	pr_info("%s: plane uncompressed : luma: %s cr: %s, cr: %s\n",__func__, flags & FWHT_FL_LUMA_IS_UNCOMPRESSED ? "yes" : "no",
 			flags & FWHT_FL_CR_IS_UNCOMPRESSED ? "yes" : "no",
