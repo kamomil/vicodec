@@ -37,6 +37,18 @@ static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
 	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1},
 };
 
+const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt_of_div(u32 width_div, u32 height_div)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++)
+		if (v4l2_fwht_pixfmts[i].width_div == width_div &&
+		    v4l2_fwht_pixfmts[i].height_div == height_div)
+			return v4l2_fwht_pixfmts + i;
+	return NULL;
+}
+
+
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_find_pixfmt(u32 pixelformat)
 {
 	unsigned int i;
@@ -252,6 +264,9 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	unsigned int components_num = 3;
 	unsigned int version;
 	const struct v4l2_fwht_pixfmt_info *info;
+	bool resolution_change = false;
+	unsigned int hdr_width_div;
+	unsigned int hdr_height_div;
 
 	pr_info("dafna: %s\n",__func__);
 	if (!state->info)
@@ -276,27 +291,40 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	pr_info("dafna: %s state->visible_width %u state->visible_height %u stride = %u\n",
 			__func__, state->visible_width, state->visible_height,state->coded_width);
 
-	/* TODO: support resolution changes */
-	if (ntohl(p_hdr->width) != state->visible_width || ntohl(p_hdr->height) != state->visible_height)
-		return -EINVAL;
-
 	flags = ntohl(p_hdr->flags);
 
 	if (version == FWHT_VERSION) {
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
 			FWHT_FL_COMPONENTS_NUM_OFFSET);
 	}
+	hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
+	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
+
+	if (ntohl(p_hdr->width) != state->visible_width || ntohl(p_hdr->height) != state->visible_height) {
+		state->visible_width = ntohl(p_hdr->width);
+		state->visible_height = ntohl(p_hdr->height);
+		resolution_change = true;
+	}
+
+	if (hdr_width_div != state->info->width_div ||
+	    hdr_height_div != state->info->height_div) {
+		info = v4l2_fwht_default_fmt_of_div(hdr_width_div, hdr_height_div);
+		if(!info)
+			return -EINVAL;
+		state->info = info;
+		resolution_change = true;
+	}
+	if (resolution_change)
+		return RESOLUTION_CHANGE;
+
+	chroma_size /= hdr_width_div;
+	chroma_size /= hdr_height_div;
 
 	state->colorspace = ntohl(p_hdr->colorspace);
 	state->xfer_func = ntohl(p_hdr->xfer_func);
 	state->ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
 	state->quantization = ntohl(p_hdr->quantization);
 	cf.rlc_data = (__be16 *)(p_in + sizeof(*p_hdr));
-
-	if (!(flags & FWHT_FL_CHROMA_FULL_WIDTH))
-		chroma_size /= 2;
-	if (!(flags & FWHT_FL_CHROMA_FULL_HEIGHT))
-		chroma_size /= 2;
 
 	pr_info("dafna: %s, in_p = %p, out_p = %p size = %u chroma_size = %u\n",__func__, p_in, p_out, size, chroma_size);
 	pr_info("dafna: %s, ref_frame.luma = %p, ref_frame.cb = %p, ref_frame.cr = %p\n",__func__, state->ref_frame.luma, state->ref_frame.cb, state->ref_frame.cr);

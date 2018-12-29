@@ -161,15 +161,14 @@ static int device_process(struct vicodec_ctx *ctx,
 	struct v4l2_fwht_state *state = &ctx->state;
 	u8 *p_src, *p_dst;
 	int ret;
-	pr_info("dafna: %s\n",__func__);
 
 	q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-	pr_info("dafna: %s\n",__func__);
 	if (ctx->is_enc)
 		p_src = vb2_plane_vaddr(&src_vb->vb2_buf, 0);
 	else
 		p_src = state->compressed_frame;
 	p_dst = vb2_plane_vaddr(&dst_vb->vb2_buf, 0);
+	pr_info("dafna: %s dst is %p, size is %lu\n",__func__,p_dst, vb2_plane_size(&dst_vb->vb2_buf, 0));
 	if (!p_src || !p_dst) {
 		v4l2_err(&dev->v4l2_dev,
 			 "Acquiring kernel pointers to buffers failed\n");
@@ -192,7 +191,10 @@ static int device_process(struct vicodec_ctx *ctx,
 		ret = v4l2_fwht_decode(state, p_src, p_dst);
 		if (ret < 0)
 			return ret;
-		vb2_set_plane_payload(&dst_vb->vb2_buf, 0, q_dst->sizeimage);
+		else if (ret == RESOLUTION_CHANGE)
+			vb2_set_plane_payload(&dst_vb->vb2_buf, 0, 0);
+		else
+			vb2_set_plane_payload(&dst_vb->vb2_buf, 0, q_dst->sizeimage);
 	}
 
 	dst_vb->sequence = q_dst->sequence++;
@@ -209,7 +211,7 @@ static int device_process(struct vicodec_ctx *ctx,
 		 V4L2_BUF_FLAG_BFRAME |
 		 V4L2_BUF_FLAG_TSTAMP_SRC_MASK);
 
-	return 0;
+	return ret;
 }
 
 /*
@@ -226,21 +228,47 @@ static void device_run(void *priv)
 	struct vicodec_dev *dev = ctx->dev;
 	struct vb2_v4l2_buffer *src_buf, *dst_buf;
 	struct vicodec_q_data *q_src;
+	int ret = 0;
 	u32 state;
 
-	pr_info("dafna: %s ctx = %p\n",__func__, ctx);
 	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	dst_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
+	pr_info("dafna: %s ctx = %p src = %p, dst = %p\n",__func__, ctx, src_buf, dst_buf);
 	q_src = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
 
 	state = VB2_BUF_STATE_DONE;
 	pr_info("dafna: %s: about to call device_process\n",__func__);
-	if (device_process(ctx, src_buf, dst_buf))
+	ret = device_process(ctx, src_buf, dst_buf);
+	if (ret < 0)
 		state = VB2_BUF_STATE_ERROR;
 	ctx->last_dst_buf = dst_buf;
 
 	spin_lock(ctx->lock);
+	if(ret == RESOLUTION_CHANGE) {
+		static const struct v4l2_event rs_event = {
+			.type = V4L2_EVENT_SOURCE_CHANGE,
+			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+		};
+		struct vicodec_q_data *q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
+		struct v4l2_fwht_state *ctx_state = &ctx->state;
+		const struct v4l2_fwht_pixfmt_info *info = ctx_state->info;
+
+		q_dst->info = info;
+		q_dst->coded_width = vic_round_dim(ctx_state->coded_width, info->width_div);
+		q_dst->coded_height = vic_round_dim(ctx_state->coded_height, info->height_div);
+		q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
+			info->sizeimage_mult / info->sizeimage_div;
+		q_dst->visible_width = ctx_state->visible_width;
+		q_dst->visible_height = ctx_state->visible_height;
+
+		pr_info("%s: dafna: res change for %p\n", __func__, dst_buf);
+		dst_buf->flags |= V4L2_BUF_FLAG_LAST;
+		v4l2_m2m_buf_done(dst_buf, state);
+		v4l2_event_queue_fh(&ctx->fh, &rs_event);
+		return;
+	}
 	if (!ctx->comp_has_next_frame && src_buf == ctx->last_src_buf) {
+		pr_info("%s: dafna: setting buffer to be last\n", __func__);
 		dst_buf->flags |= V4L2_BUF_FLAG_LAST;
 		v4l2_event_queue_fh(&ctx->fh, &eos_event);
 	}
@@ -866,10 +894,12 @@ static void vicodec_mark_last_buf(struct vicodec_ctx *ctx)
 	static const struct v4l2_event eos_event = {
 		.type = V4L2_EVENT_EOS
 	};
-
 	spin_lock(ctx->lock);
 	ctx->last_src_buf = v4l2_m2m_last_src_buf(ctx->fh.m2m_ctx);
+	pr_info("%s: dafna: called last src buf is %p\n", __func__, ctx->last_src_buf);
 	if (!ctx->last_src_buf && ctx->last_dst_buf) {
+		pr_info("%s: dafna: setting %p as last\n", __func__, ctx->last_dst_buf);
+	
 		ctx->last_dst_buf->flags |= V4L2_BUF_FLAG_LAST;
 		v4l2_event_queue_fh(&ctx->fh, &eos_event);
 	}
@@ -927,6 +957,7 @@ static int vicodec_decoder_cmd(struct file *file, void *fh,
 	if (ret < 0)
 		return ret;
 
+	pr_info("%s: dafna calling vicodec_mark_last_buf\n", __func__);
 	vicodec_mark_last_buf(ctx);
 	return 0;
 }
@@ -963,6 +994,7 @@ static int vicodec_subscribe_event(struct v4l2_fh *fh,
 {
 	switch (sub->type) {
 	case V4L2_EVENT_EOS:
+	case V4L2_EVENT_SOURCE_CHANGE:
 		return v4l2_event_subscribe(fh, sub, 0, NULL);
 	default:
 		return v4l2_ctrl_subscribe_event(fh, sub);
@@ -1182,6 +1214,7 @@ static void vicodec_stop_streaming(struct vb2_queue *q)
 {
 	struct vicodec_ctx *ctx = vb2_get_drv_priv(q);
 
+	pr_info("%s: dafna: calling vicodec_return_bufs for q = %p\n", __func__, q);
 	vicodec_return_bufs(q, VB2_BUF_STATE_ERROR);
 
 	if (!V4L2_TYPE_IS_OUTPUT(q->type))
@@ -1386,6 +1419,7 @@ static int vicodec_release(struct file *file)
 	struct video_device *vfd = video_devdata(file);
 	struct vicodec_ctx *ctx = file2ctx(file);
 
+	pr_info("%s: dafna: call v4l2_m2m_ctx_release\n", __func__);
 	v4l2_fh_del(&ctx->fh);
 	v4l2_fh_exit(&ctx->fh);
 	v4l2_ctrl_handler_free(&ctx->hdl);
