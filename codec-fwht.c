@@ -740,10 +740,10 @@ exit_loop:
 		 * shouldn't appear anyway.
 		 */
 		for (j = 0; j < height; j++) {
-			input += stride;
 			for (i = 0, p = input; i < width; i++, p += input_step) {
 				*out++ = (*p == 0xff) ? 0xfe : *p;
 			}
+			input += stride;
 		}
 		*rlco = (__be16 *)out;
 		encoding &= ~FWHT_FRAME_PCODED;
@@ -817,14 +817,14 @@ static void decode_plane(struct fwht_cframe *cf, const __be16 **rlco, u8 *ref,
 	s16 stat;
 	unsigned int i, j;
 
+	width = round_up(width, 8);
+	height = round_up(height, 8);
+
 	if (uncompressed) {
 		memcpy(ref, *rlco, width * height);
 		*rlco += width * height / 2;
 		return;
 	}
-	width = round_up(width, 8);
-	height = round_up(height, 8);
-
 	/*
 	 * When decoding each macroblock the rlco pointer will be increased
 	 * by 65 * 2 bytes worst-case.
