@@ -370,7 +370,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	case V4L2_PIX_FMT_YUYV:
 		k = 0;
 		for(i = 0; i < state->coded_height; i++) {
-			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j++) {
 				*p++ = state->ref_frame.luma[k];
 				*p++ = state->ref_frame.cb[k / 2];
 				*p++ = state->ref_frame.luma[k + 1];
@@ -427,7 +427,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 				*p++ = state->ref_frame.cr[k];
 				*p++ = state->ref_frame.luma[k];
 				*p++ = state->ref_frame.cb[k];
-				k += 2;
+				k++;
 			}
 			p_out += state->stride;
 		}
@@ -439,7 +439,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 				*p++ = state->ref_frame.cb[k];
 				*p++ = state->ref_frame.luma[k];
 				*p++ = state->ref_frame.cr[k];
-				k += 2;
+				k++;
 			}
 			p_out += state->stride;
 		}
