@@ -11,30 +11,30 @@
 #include "codec-v4l2-fwht.h"
 
 static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
-	{ V4L2_PIX_FMT_YUV420,  1, 3, 2, 1, 1, 2, 2, 3},
-	{ V4L2_PIX_FMT_YVU420,  1, 3, 2, 1, 1, 2, 2, 3},
-	{ V4L2_PIX_FMT_YUV422P, 1, 2, 1, 1, 1, 2, 1, 3},
-	{ V4L2_PIX_FMT_NV12,    1, 3, 2, 1, 2, 2, 2, 3},
-	{ V4L2_PIX_FMT_NV21,    1, 3, 2, 1, 2, 2, 2, 3},
-	{ V4L2_PIX_FMT_NV16,    1, 2, 1, 1, 2, 2, 1, 3},
-	{ V4L2_PIX_FMT_NV61,    1, 2, 1, 1, 2, 2, 1, 3},
-	{ V4L2_PIX_FMT_NV24,    1, 3, 1, 1, 2, 1, 1, 3},
-	{ V4L2_PIX_FMT_NV42,    1, 3, 1, 1, 2, 1, 1, 3},
-	{ V4L2_PIX_FMT_YUYV,    2, 2, 1, 2, 4, 2, 1, 3},
-	{ V4L2_PIX_FMT_YVYU,    2, 2, 1, 2, 4, 2, 1, 3},
-	{ V4L2_PIX_FMT_UYVY,    2, 2, 1, 2, 4, 2, 1, 3},
-	{ V4L2_PIX_FMT_VYUY,    2, 2, 1, 2, 4, 2, 1, 3},
-	{ V4L2_PIX_FMT_BGR24,   3, 3, 1, 3, 3, 1, 1, 3},
-	{ V4L2_PIX_FMT_RGB24,   3, 3, 1, 3, 3, 1, 1, 3},
-	{ V4L2_PIX_FMT_HSV24,   3, 3, 1, 3, 3, 1, 1, 3},
-	{ V4L2_PIX_FMT_BGR32,   4, 4, 1, 4, 4, 1, 1, 3},
-	{ V4L2_PIX_FMT_XBGR32,  4, 4, 1, 4, 4, 1, 1, 3},
-	{ V4L2_PIX_FMT_RGB32,   4, 4, 1, 4, 4, 1, 1, 3},
-	{ V4L2_PIX_FMT_XRGB32,  4, 4, 1, 4, 4, 1, 1, 3},
-	{ V4L2_PIX_FMT_HSV32,   4, 4, 1, 4, 4, 1, 1, 3},
-	{ V4L2_PIX_FMT_ARGB32,  4, 4, 1, 4, 4, 1, 1, 4},
-	{ V4L2_PIX_FMT_ABGR32,  4, 4, 1, 4, 4, 1, 1, 4},
-	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1},
+	{ V4L2_PIX_FMT_YUV420,  1, 3, 2, 1, 1, 2, 2, 3, 3},
+	{ V4L2_PIX_FMT_YVU420,  1, 3, 2, 1, 1, 2, 2, 3, 3},
+	{ V4L2_PIX_FMT_YUV422P, 1, 2, 1, 1, 1, 2, 1, 3, 3},
+	{ V4L2_PIX_FMT_NV12,    1, 3, 2, 1, 2, 2, 2, 3, 2},
+	{ V4L2_PIX_FMT_NV21,    1, 3, 2, 1, 2, 2, 2, 3, 2},
+	{ V4L2_PIX_FMT_NV16,    1, 2, 1, 1, 2, 2, 1, 3, 2},
+	{ V4L2_PIX_FMT_NV61,    1, 2, 1, 1, 2, 2, 1, 3, 2},
+	{ V4L2_PIX_FMT_NV24,    1, 3, 1, 1, 2, 1, 1, 3, 2},
+	{ V4L2_PIX_FMT_NV42,    1, 3, 1, 1, 2, 1, 1, 3, 2},
+	{ V4L2_PIX_FMT_YUYV,    2, 2, 1, 2, 4, 2, 1, 3, 1},
+	{ V4L2_PIX_FMT_YVYU,    2, 2, 1, 2, 4, 2, 1, 3, 1},
+	{ V4L2_PIX_FMT_UYVY,    2, 2, 1, 2, 4, 2, 1, 3, 1},
+	{ V4L2_PIX_FMT_VYUY,    2, 2, 1, 2, 4, 2, 1, 3, 1},
+	{ V4L2_PIX_FMT_BGR24,   3, 3, 1, 3, 3, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_RGB24,   3, 3, 1, 3, 3, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_HSV24,   3, 3, 1, 3, 3, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_BGR32,   4, 4, 1, 4, 4, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_XBGR32,  4, 4, 1, 4, 4, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_RGB32,   4, 4, 1, 4, 4, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_XRGB32,  4, 4, 1, 4, 4, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_HSV32,   4, 4, 1, 4, 4, 1, 1, 3, 1},
+	{ V4L2_PIX_FMT_ARGB32,  4, 4, 1, 4, 4, 1, 1, 4, 1},
+	{ V4L2_PIX_FMT_ABGR32,  4, 4, 1, 4, 4, 1, 1, 4, 1},
+	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1, 1},
 };
 
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_find_pixfmt(u32 pixelformat)
@@ -56,9 +56,7 @@ const struct v4l2_fwht_pixfmt_info *v4l2_fwht_get_pixfmt(u32 idx)
 
 int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 {
-	unsigned int padded_height;
-	unsigned int stride;
-	unsigned int size;
+	unsigned int size = state->coded_width * state->coded_height;
 	const struct v4l2_fwht_pixfmt_info *info = state->info;
 	struct fwht_cframe_hdr *p_hdr;
 	struct fwht_cframe cf;
@@ -66,16 +64,10 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	u32 encoding;
 	u32 flags = 0;
 
-	pr_info("dafna: %s\n",__func__);
 	if (!info)
 		return -EINVAL;
-	stride = vic_round_dim(state->width,info->width_div);
-	padded_height = vic_round_dim(state->height,info->height_div);
-	size = stride * padded_height;
 
-	rf.width = state->width;
-	rf.height = state->height;
-	rf.stride = stride;
+	rf.coded_width = state->coded_width;
 	rf.luma = p_in;
 	rf.width_div = info->width_div;
 	rf.height_div = info->height_div;
@@ -83,12 +75,6 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	rf.chroma_step = info->chroma_step;
 	rf.alpha = NULL;
 	rf.components_num = info->components_num;
-
-	pr_info("dafna: %s: V4L2_PIX_FMT is %u p_in[0] = %u ,p_in[1] = %u stride = %u, p_in[stride] = %u\n",__func__, info->id,p_in[0],p_in[1],stride, p_in[stride]);
-	pr_info("dafna: %s: rf.luma_alpha_step = %u p_in[stride*%u] = %u\n",__func__, rf.luma_alpha_step, rf.luma_alpha_step, p_in[rf.luma_alpha_step*stride]);
-
-	pr_info("dafna: %s: p_in[stride*%u*2] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*stride*2]);
-	pr_info("dafna: %s: p_in[stride*%u*3] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*stride*3]);
 
 	switch (info->id) {
 	case V4L2_PIX_FMT_GREY:
@@ -177,18 +163,15 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		return -EINVAL;
 	}
 
-	cf.width = state->width;
-	cf.height = state->height;
 	cf.i_frame_qp = state->i_frame_qp;
 	cf.p_frame_qp = state->p_frame_qp;
 	cf.rlc_data = (__be16 *)(p_out + sizeof(*p_hdr));
 
-	pr_info("dafna: %s: p_in = %p, luma = %p cr = %p cb = %p\n",__func__,p_in, rf.luma, rf.cr, rf.cb);
-	pr_info("dafna: %s: luma-p_in = %ld, cr-luma = %ld cb-cr = %ld\n",__func__,rf.luma-p_in, rf.cr-rf.luma, rf.cb-rf.cr);
-
 	encoding = fwht_encode_frame(&rf, &state->ref_frame, &cf,
 				     !state->gop_cnt,
-				     state->gop_cnt == state->gop_size - 1);
+				     state->gop_cnt == state->gop_size - 1,
+				     state->visible_width, state->visible_height,
+				     state->stride);
 	if (!(encoding & FWHT_FRAME_PCODED))
 		state->gop_cnt = 0;
 	if (++state->gop_cnt >= state->gop_size)
@@ -198,8 +181,8 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	p_hdr->magic1 = FWHT_MAGIC1;
 	p_hdr->magic2 = FWHT_MAGIC2;
 	p_hdr->version = htonl(FWHT_VERSION);
-	p_hdr->width = htonl(cf.width);
-	p_hdr->height = htonl(cf.height);
+	p_hdr->width = htonl(state->visible_width);
+	p_hdr->height = htonl(state->visible_height);
 	flags |= (info->components_num - 1) << FWHT_FL_COMPONENTS_NUM_OFFSET;
 	if (encoding & FWHT_LUMA_UNENCODED)
 		flags |= FWHT_FL_LUMA_IS_UNCOMPRESSED;
@@ -213,50 +196,34 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		flags |= FWHT_FL_CHROMA_FULL_HEIGHT;
 	if (rf.width_div == 1)
 		flags |= FWHT_FL_CHROMA_FULL_WIDTH;
-
-	pr_info("ENCODING luma UN compressed: %lu\n", flags & FWHT_FL_LUMA_IS_UNCOMPRESSED);
-	pr_info("cb UN compressed: %lu\n", flags & FWHT_FL_CB_IS_UNCOMPRESSED);
-	pr_info("cr UN compressed: %lu\n", flags & FWHT_FL_CR_IS_UNCOMPRESSED);
-	pr_info("alpha UN compressed: %lu\n", flags & FWHT_FL_ALPHA_IS_UNCOMPRESSED);
-
 	p_hdr->flags = htonl(flags);
 	p_hdr->colorspace = htonl(state->colorspace);
 	p_hdr->xfer_func = htonl(state->xfer_func);
 	p_hdr->ycbcr_enc = htonl(state->ycbcr_enc);
 	p_hdr->quantization = htonl(state->quantization);
 	p_hdr->size = htonl(cf.size);
-	state->ref_frame.width = cf.width;
-	state->ref_frame.height = cf.height;
 	return cf.size + sizeof(*p_hdr);
 }
 
 int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 {
-	unsigned int size;
-	unsigned int chroma_size;
-	unsigned int i;
+	unsigned int chroma_vis_width = state->visible_width;
+	unsigned int chroma_vis_height = state->visible_height;
+	unsigned int chroma_stride = state->stride;
+	unsigned int i, j, k;
 	u32 flags;
 	struct fwht_cframe_hdr *p_hdr;
 	struct fwht_cframe cf;
-	u8 *p;
+	u8 *p, *ref_p;
 	unsigned int components_num = 3;
 	unsigned int version;
 	const struct v4l2_fwht_pixfmt_info *info;
-	unsigned int stride;
-	unsigned int padded_height;
 
-	pr_info("dafna: %s\n",__func__);
-	if (!state->info){
-		pr_info("dafna: %s ERR: no info\n",__func__);
+	if (!state->info)
 		return -EINVAL;
-	}
+
 	info = state->info;
-	stride = vic_round_dim(state->width, info->width_div);
-	padded_height = vic_round_dim(state->height, info->height_div);
-	chroma_size = size = stride * padded_height;
 	p_hdr = (struct fwht_cframe_hdr *)p_in;
-	cf.width = ntohl(p_hdr->width);
-	cf.height = ntohl(p_hdr->height);
 
 	version = ntohl(p_hdr->version);
 	if (!version || version > FWHT_VERSION) {
@@ -269,12 +236,12 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	    p_hdr->magic2 != FWHT_MAGIC2)
 		return -EINVAL;
 
+	state->visible_width = ntohl(p_hdr->width);
+	state->visible_height = ntohl(p_hdr->height);
 
-	pr_info("dafna: %s cf.width %u state->width %u cf.height %u state->height %u stride = %u\n",
-			__func__,cf.width, state->width, cf.height, state->height,stride);
-
-	/* TODO: support resolution changes */
-	if (cf.width != state->width || cf.height != state->height)
+	pr_info("%s vw %u vh %u s %u\n", __func__, state->visible_width, state->visible_height, state->stride);
+	if (ntohl(p_hdr->width)  != state->visible_width ||
+	    ntohl(p_hdr->height) != state->visible_height)
 		return -EINVAL;
 
 	flags = ntohl(p_hdr->flags);
@@ -290,19 +257,15 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	state->quantization = ntohl(p_hdr->quantization);
 	cf.rlc_data = (__be16 *)(p_in + sizeof(*p_hdr));
 
-	if (!(flags & FWHT_FL_CHROMA_FULL_WIDTH))
-		chroma_size /= 2;
+	if (!(flags & FWHT_FL_CHROMA_FULL_WIDTH)) {
+		chroma_vis_width /= 2;
+		chroma_stride /= 2;
+	}
 	if (!(flags & FWHT_FL_CHROMA_FULL_HEIGHT))
-		chroma_size /= 2;
+		chroma_vis_height /= 2;
 
-	pr_info("dafna: %s, in_p = %p, out_p = %p\n",__func__, p_in, p_out);
-	pr_info("dafna: %s, calling fwht_decode_frame ref_frame.luma = %p, ref_frame.cr = %p, ref_frame.cb = %p\n",__func__, state->ref_frame.luma, state->ref_frame.cr, state->ref_frame.cb);
-	fwht_decode_frame(&cf, &state->ref_frame, flags, components_num, stride);
-
-	pr_info("%s: plane uncompressed : luma: %s cr: %s, cr: %s\n",__func__, flags & FWHT_FL_LUMA_IS_UNCOMPRESSED ? "yes" : "no",
-			flags & FWHT_FL_CR_IS_UNCOMPRESSED ? "yes" : "no",
-			flags & FWHT_FL_CB_IS_UNCOMPRESSED ? "yes" : "no");
-
+	fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
+			  state->visible_width, state->visible_height, state->coded_width);
 
 	/*
 	 * TODO - handle the case where the compressed stream encodes a
@@ -310,126 +273,226 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	 */
 	switch (state->info->id) {
 	case V4L2_PIX_FMT_GREY:
-		memcpy(p_out, state->ref_frame.luma, size);
+		ref_p = state->ref_frame.luma;
+		for(i = 0; i < state->coded_height; i++)  {
+			memcpy(p_out, ref_p, state->visible_width);
+			p_out += state->stride;
+			ref_p += state->coded_width;
+		}
 		break;
 	case V4L2_PIX_FMT_YUV420:
 	case V4L2_PIX_FMT_YUV422P:
-		pr_info("%s: YUV420/YUV422P\n", __func__);
-		memcpy(p_out, state->ref_frame.luma, size);
-		p_out += size;
-		memcpy(p_out, state->ref_frame.cb, chroma_size);
-		p_out += chroma_size;
-		memcpy(p_out, state->ref_frame.cr, chroma_size);
+		ref_p = state->ref_frame.luma;
+		for(i = 0; i < state->coded_height; i++)  {
+			memcpy(p_out, ref_p, state->visible_width);
+			p_out += state->stride;
+			ref_p += state->coded_width;
+		}
+
+		ref_p = state->ref_frame.cb;
+		for(i = 0; i < state->coded_height / 2; i++)  {
+			memcpy(p_out, ref_p, state->visible_width / 2);
+			p_out += state->stride / 2;
+			ref_p += state->coded_width / 2;
+		}
+		ref_p = state->ref_frame.cr;
+		for(i = 0; i < state->coded_height / 2; i++)  {
+			memcpy(p_out, ref_p, state->visible_width / 2);
+			p_out += state->stride / 2;
+			ref_p += state->coded_width / 2;
+		}
 		break;
 	case V4L2_PIX_FMT_YVU420:
-		memcpy(p_out, state->ref_frame.luma, size);
-		p_out += size;
-		memcpy(p_out, state->ref_frame.cr, chroma_size);
-		p_out += chroma_size;
-		memcpy(p_out, state->ref_frame.cb, chroma_size);
+		ref_p = state->ref_frame.luma;
+		for(i = 0; i < state->coded_height; i++)  {
+			memcpy(p_out, ref_p, state->visible_width);
+			p_out += state->stride / 2;
+			ref_p += state->coded_width;
+		}
+
+		ref_p = state->ref_frame.cr;
+		for(i = 0; i < state->coded_height / 2; i++)  {
+			memcpy(p_out, ref_p, state->visible_width / 2);
+			p_out += state->stride / 2;
+			ref_p += state->coded_width / 2;
+		}
+		ref_p = state->ref_frame.cb;
+		for(i = 0; i < state->coded_height / 2; i++)  {
+			memcpy(p_out, ref_p, state->visible_width / 2);
+			p_out += state->stride / 2;
+			ref_p += state->coded_width / 2;
+		}
 		break;
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV16:
 	case V4L2_PIX_FMT_NV24:
-		memcpy(p_out, state->ref_frame.luma, size);
-		p_out += size;
-		for (i = 0, p = p_out; i < chroma_size; i++) {
-			*p++ = state->ref_frame.cb[i];
-			*p++ = state->ref_frame.cr[i];
+		ref_p = state->ref_frame.luma;
+		for(i = 0; i < state->coded_height; i++)  {
+			memcpy(p_out, ref_p, state->visible_width);
+			p_out += state->stride;
+			ref_p += state->coded_width;
+		}
+
+		k = 0;
+		for(i = 0; i < state->coded_height / 2; i++) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j++) {
+				*p++ = state->ref_frame.cb[k];
+				*p++ = state->ref_frame.cr[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_NV21:
 	case V4L2_PIX_FMT_NV61:
 	case V4L2_PIX_FMT_NV42:
-		memcpy(p_out, state->ref_frame.luma, size);
-		p_out += size;
-		for (i = 0, p = p_out; i < chroma_size; i++) {
-			*p++ = state->ref_frame.cr[i];
-			*p++ = state->ref_frame.cb[i];
+		ref_p = state->ref_frame.luma;
+		for(i = 0; i < state->coded_height; i++)  {
+			memcpy(p_out, ref_p, state->visible_width);
+			p_out += state->stride;
+			ref_p += state->coded_width;
+		}
+
+		k = 0;
+		for(i = 0; i < state->coded_height / 2; i++) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j++) {
+				*p++ = state->ref_frame.cr[k];
+				*p++ = state->ref_frame.cb[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_YUYV:
-		for (i = 0, p = p_out; i < size; i += 2) {
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cb[i / 2];
-			*p++ = state->ref_frame.luma[i + 1];
-			*p++ = state->ref_frame.cr[i / 2];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cb[k / 2];
+				*p++ = state->ref_frame.luma[k + 1];
+				*p++ = state->ref_frame.cr[k / 2];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_YVYU:
-		for (i = 0, p = p_out; i < size; i += 2) {
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cr[i / 2];
-			*p++ = state->ref_frame.luma[i + 1];
-			*p++ = state->ref_frame.cb[i / 2];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cr[k / 2];
+				*p++ = state->ref_frame.luma[k + 1];
+				*p++ = state->ref_frame.cb[k / 2];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_UYVY:
-		for (i = 0, p = p_out; i < size; i += 2) {
-			*p++ = state->ref_frame.cb[i / 2];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cr[i / 2];
-			*p++ = state->ref_frame.luma[i + 1];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+				*p++ = state->ref_frame.cb[k / 2];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cr[k / 2];
+				*p++ = state->ref_frame.luma[k + 1];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_VYUY:
-		for (i = 0, p = p_out; i < size; i += 2) {
-			*p++ = state->ref_frame.cr[i / 2];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cb[i / 2];
-			*p++ = state->ref_frame.luma[i + 1];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+				*p++ = state->ref_frame.cr[k / 2];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cb[k / 2];
+				*p++ = state->ref_frame.luma[k + 1];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_RGB24:
 	case V4L2_PIX_FMT_HSV24:
-		pr_info("%s: RGB24/HSV24\n", __func__);
-		for (i = 0, p = p_out; i < size; i++) {
-			*p++ = state->ref_frame.cr[i];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cb[i];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width; j++) {
+				*p++ = state->ref_frame.cr[k];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cb[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_BGR24:
-		pr_info("%s: BGR24\n", __func__);
-		for (i = 0, p = p_out; i < size; i++) {
-			*p++ = state->ref_frame.cb[i];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cr[i];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width; j++) {
+				*p++ = state->ref_frame.cb[k];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cr[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_RGB32:
 	case V4L2_PIX_FMT_XRGB32:
 	case V4L2_PIX_FMT_HSV32:
-		for (i = 0, p = p_out; i < size; i++) {
-			*p++ = 0;
-			*p++ = state->ref_frame.cr[i];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cb[i];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width; j++) {
+				*p++ = 0;
+				*p++ = state->ref_frame.cr[k];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cb[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_BGR32:
 	case V4L2_PIX_FMT_XBGR32:
-		for (i = 0, p = p_out; i < size; i++) {
-			*p++ = state->ref_frame.cb[i];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cr[i];
-			*p++ = 0;
+		k = 0;
+		for(i = 0; i < state->coded_height; i++) {
+			for (j = 0, p = p_out; j < state->coded_width; j++) {
+				*p++ = state->ref_frame.cb[k];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cr[k];
+				*p++ = 0;
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_ARGB32:
-		for (i = 0, p = p_out; i < size; i++) {
-			*p++ = state->ref_frame.alpha[i];
-			*p++ = state->ref_frame.cr[i];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cb[i];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++, p_out += state->stride) {
+			for (j = 0, p = p_out; j < state->coded_width; j++) {
+				*p++ = state->ref_frame.alpha[k];
+				*p++ = state->ref_frame.cr[k];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cb[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	case V4L2_PIX_FMT_ABGR32:
-		for (i = 0, p = p_out; i < size; i++) {
-			*p++ = state->ref_frame.cb[i];
-			*p++ = state->ref_frame.luma[i];
-			*p++ = state->ref_frame.cr[i];
-			*p++ = state->ref_frame.alpha[i];
+		k = 0;
+		for(i = 0; i < state->coded_height; i++, p_out += state->stride) {
+			for (j = 0, p = p_out; j < state->coded_width; j++) {
+				*p++ = state->ref_frame.cb[k];
+				*p++ = state->ref_frame.luma[k];
+				*p++ = state->ref_frame.cr[k];
+				*p++ = state->ref_frame.alpha[k];
+				k++;
+			}
+			p_out += state->stride;
 		}
 		break;
 	default:
