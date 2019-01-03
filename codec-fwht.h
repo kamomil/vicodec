@@ -132,7 +132,8 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 		      struct fwht_raw_frame *ref_frm,
 		      struct fwht_cframe *cf,
 		      bool is_intra, bool next_is_intra,
-		      unsigned int width, unsigned int height, unsigned int stride);
+		      unsigned int width, unsigned int height,
+		      unsigned int stride, unsigned int chroma_stride);
 void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
 		       u32 hdr_flags, unsigned int components_num,
 		       unsigned int width, unsigned int height,

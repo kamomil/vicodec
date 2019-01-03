@@ -755,7 +755,8 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 		      struct fwht_raw_frame *ref_frm,
 		      struct fwht_cframe *cf,
 		      bool is_intra, bool next_is_intra,
-		      unsigned int width, unsigned int height, unsigned int stride)
+		      unsigned int width, unsigned int height,
+		      unsigned int stride, unsigned int chroma_stride)
 {
 	unsigned int size = height * width;
 	__be16 *rlco = cf->rlc_data;
@@ -773,7 +774,6 @@ u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 	if (frm->components_num >= 3) {
 		u32 chroma_h = height / frm->height_div;
 		u32 chroma_w = width / frm->width_div;
-		u32 chroma_stride = stride / frm->width_div;
 		unsigned int chroma_size = chroma_h * chroma_w;
 
 		rlco_max = rlco + chroma_size / 2 - 256;
@@ -833,7 +833,7 @@ static void decode_plane(struct fwht_cframe *cf, const __be16 **rlco, u8 *ref,
 	 */
 	for (j = 0; j < height / 8; j++) {
 		for (i = 0; i < width / 8; i++) {
-			u8 *refp = ref + j * 8 * width + i * 8;
+			u8 *refp = ref + j * 8 * coded_width + i * 8;
 
 			if (copies) {
 				memcpy(cf->de_fwht, copy, sizeof(copy));
