@@ -188,8 +188,6 @@ static int device_process(struct vicodec_ctx *ctx,
 		ret = v4l2_fwht_decode(state, p_src, p_dst);
 		if (ret < 0)
 			return ret;
-		q_dst->visible_width = state->visible_width;
-		q_dst->visible_height = state->visible_height;
 		vb2_set_plane_payload(&dst_vb->vb2_buf, 0, q_dst->sizeimage);
 	}
 
@@ -812,29 +810,16 @@ static int vidioc_s_selection(struct file *file, void *priv,
 {
 	struct vicodec_ctx *ctx = file2ctx(file);
 	struct vicodec_q_data *q_data;
-	bool is_out_crop_on_enc;
-	//bool is_cap_compose_on_dec;
-	enum v4l2_buf_type valid_cap_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	enum v4l2_buf_type valid_out_type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+	enum v4l2_buf_type out_type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
 
-	if (multiplanar) {
-		valid_cap_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-		valid_out_type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-	}
+	if (multiplanar)
+		out_type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 
 	q_data = get_q_data(ctx, s->type);
 	if (!q_data)
 		return -EINVAL;
 
-	is_out_crop_on_enc = ctx->is_enc &&
-			     s->type == valid_out_type &&
-			     s->target == V4L2_SEL_TGT_CROP;
-
-	//is_cap_compose_on_dec = !ctx->is_enc &&
-	//			s->type == valid_cap_type &&
-	//			s->target == V4L2_SEL_TGT_COMPOSE;
-
-	if (!is_out_crop_on_enc /*&& !is_cap_compose_on_dec*/)
+	if (!ctx->is_enc || s->type != out_type || s->target != V4L2_SEL_TGT_CROP)
 		return -EINVAL;
 
 	s->r.left = 0;
