@@ -467,12 +467,15 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
 		if (multiplanar)
 			return -EINVAL;
+		pr_info("%s: dafna: buf type is %s\n",__func__,f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE ? "CAP" : "OUT");
 		pix = &f->fmt.pix;
 		pix->width = q_data->coded_width;
 		pix->height = q_data->coded_height;
 		pix->field = V4L2_FIELD_NONE;
 		pix->pixelformat = info->id;
-		pix->bytesperline = q_data->coded_width * info->bytesperline_mult;
+		pix->bytesperline = 1998 /*q_data->coded_width*/ * info->bytesperline_mult;
+		pr_info("dafna: %s: set bytesperline(%u) = q_data->coded_width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix->bytesperline,q_data->coded_width,info->bytesperline_mult);
 		pix->sizeimage = q_data->sizeimage;
 		pix->colorspace = ctx->state.colorspace;
 		pix->xfer_func = ctx->state.xfer_func;
@@ -533,12 +536,17 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		if (pix->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix->pixelformat);
 		pix->width = vic_round_dim(clamp(pix->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
+	        pr_info("%s: dafna: buf type is %s\n",__func__,f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE ? "CAP" : "OUT");
 		pix->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
 		pix->field = V4L2_FIELD_NONE;
 		pix->bytesperline =
-			pix->width * info->bytesperline_mult;
-		pix->sizeimage = pix->width * pix->height *
+			1998 /*pix->width*/ * info->bytesperline_mult;
+		pr_info("%s: bytesperline(%u) = 1998 * info->bytesperline_mult(%u)\n",__func__,
+				pix->bytesperline,info->bytesperline_mult);
+		pix->sizeimage = 1998 * pix->height *
 			info->sizeimage_mult / info->sizeimage_div;
+		pr_info("%s: pix->sizeimage (%u) = 1998 * pix->height (%u) * info->sizeimage_mult (%u)/ info->sizeimage_div (%u)\n",__func__,
+			pix->sizeimage,pix->height,info->sizeimage_mult, info->sizeimage_div);
 		if (pix->pixelformat == V4L2_PIX_FMT_FWHT)
 			pix->sizeimage += sizeof(struct fwht_cframe_hdr);
 		break;
@@ -1014,6 +1022,7 @@ static int vicodec_queue_setup(struct vb2_queue *vq, unsigned int *nbuffers,
 	struct vicodec_q_data *q_data = get_q_data(ctx, vq->type);
 	unsigned int size = q_data->sizeimage;
 
+	pr_info("%s: type = %s, setting size to %u\n", __func__, vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE ? "CAP" : "OUT", size);
 	if (*nplanes)
 		return sizes[0] < size ? -EINVAL : 0;
 
@@ -1108,7 +1117,9 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 			state->visible_height = q_data->visible_height;
 			state->coded_width = q_data->coded_width;
 			state->coded_height = q_data->coded_height;
-			state->stride = q_data->coded_width * info->bytesperline_mult;
+			state->stride = 1998 /*q_data->coded_width*/ * info->bytesperline_mult;
+			pr_info("vicodec_start_streaming: state visible = %ux%u, coded = %ux%u\n", state->visible_width, state->visible_height, state->coded_width, state->coded_height);
+			pr_info("vicodec_start_streaming: stride %u\n", state->stride);
 		}
 		return 0;
 	}
@@ -1118,7 +1129,9 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 		state->visible_height = q_data->visible_height;
 		state->coded_width = q_data->coded_width;
 		state->coded_height = q_data->coded_height;
-		state->stride = q_data->coded_width * info->bytesperline_mult;
+		state->stride = 1998 /*q_data->coded_width*/ * info->bytesperline_mult;
+		pr_info("vicodec_start_streaming: state visible = %ux%u, coded = %ux%u\n", state->visible_width, state->visible_height, state->coded_width, state->coded_height);
+		pr_info("vicodec_start_streaming: stride %u\n", state->stride);
 	}
 	state->ref_frame.luma = kvmalloc(total_planes_size, GFP_KERNEL);
 	ctx->comp_max_size = total_planes_size + sizeof(struct fwht_cframe_hdr);

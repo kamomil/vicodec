@@ -77,6 +77,9 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	rf.alpha = NULL;
 	rf.components_num = info->components_num;
 
+	pr_info("%s: coded wxh: %ux%u\n",__func__, state->coded_width, state->coded_height);
+	pr_info("%s: stride %u\n",__func__, state->stride);
+	pr_info("dafna: %s: rf.luma_alpha_step = %u size = %u\n",__func__, rf.luma_alpha_step, size);
 	switch (info->id) {
 	case V4L2_PIX_FMT_GREY:
 		rf.cb = NULL;
@@ -165,6 +168,21 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		break;
 	default:
 		return -EINVAL;
+	}
+	pr_info("dafna: %s: rf.luma[%u*1] = %u\n",__func__, state->stride, rf.luma[state->stride*1]);
+	pr_info("dafna: %s: rf.luma[%u*2] = %u\n",__func__, state->stride, rf.luma[state->stride*2]);
+	pr_info("dafna: %s: rf.luma[%u*3] = %u\n",__func__, state->stride, rf.luma[state->stride*3]);
+
+	if(info->id == V4L2_PIX_FMT_YUV420) {
+		pr_info("dafna: %s: rf.cb[0] = %u\n",__func__, rf.cb[0]);
+		pr_info("dafna: %s: rf.cb[%u*1] = %u\n",__func__, chroma_stride, rf.cb[chroma_stride*1]);
+		pr_info("dafna: %s: rf.cb[%u*2] = %u\n",__func__, chroma_stride, rf.cb[chroma_stride*2]);
+		pr_info("dafna: %s: rf.cb[%u*3] = %u\n",__func__, chroma_stride, rf.cb[chroma_stride*3]);
+
+		pr_info("dafna: %s: rf.cr[0] = %u\n",__func__, rf.cr[0]);
+		pr_info("dafna: %s: rf.cr[%u*1] = %u\n",__func__, chroma_stride, rf.cr[chroma_stride*1]);
+		pr_info("dafna: %s: rf.cr[%u*2] = %u\n",__func__, chroma_stride, rf.cr[chroma_stride*2]);
+		pr_info("dafna: %s: rf.cr[%u*3] = %u\n",__func__, chroma_stride, rf.cr[chroma_stride*3]);
 	}
 
 	cf.i_frame_qp = state->i_frame_qp;
@@ -383,7 +401,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	case V4L2_PIX_FMT_YVYU:
 		k = 0;
 		for(i = 0; i < state->coded_height; i++) {
-			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j++) {
 				*p++ = state->ref_frame.luma[k];
 				*p++ = state->ref_frame.cr[k / 2];
 				*p++ = state->ref_frame.luma[k + 1];
@@ -396,7 +414,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	case V4L2_PIX_FMT_UYVY:
 		k = 0;
 		for(i = 0; i < state->coded_height; i++) {
-			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j++) {
 				*p++ = state->ref_frame.cb[k / 2];
 				*p++ = state->ref_frame.luma[k];
 				*p++ = state->ref_frame.cr[k / 2];
@@ -409,7 +427,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	case V4L2_PIX_FMT_VYUY:
 		k = 0;
 		for(i = 0; i < state->coded_height; i++) {
-			for (j = 0, p = p_out; j < state->coded_width / 2; j += 2) {
+			for (j = 0, p = p_out; j < state->coded_width / 2; j++) {
 				*p++ = state->ref_frame.cr[k / 2];
 				*p++ = state->ref_frame.luma[k];
 				*p++ = state->ref_frame.cb[k / 2];
