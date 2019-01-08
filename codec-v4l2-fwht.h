@@ -19,12 +19,15 @@ struct v4l2_fwht_pixfmt_info {
 	unsigned int width_div;
 	unsigned int height_div;
 	unsigned int components_num;
+	unsigned int planes_num;
 };
 
 struct v4l2_fwht_state {
 	const struct v4l2_fwht_pixfmt_info *info;
-	unsigned int width;
-	unsigned int height;
+	unsigned int visible_width;
+	unsigned int visible_height;
+	unsigned int coded_width;
+	unsigned int coded_height;
 	unsigned int stride;
 	unsigned int gop_size;
 	unsigned int gop_cnt;
@@ -42,6 +45,7 @@ struct v4l2_fwht_state {
 
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_find_pixfmt(u32 pixelformat);
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_get_pixfmt(u32 idx);
+const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt_of_div(u32 width_div, u32 height_div);
 
 int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out);
 int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out);
