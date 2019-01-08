@@ -485,13 +485,16 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		if (multiplanar)
 			return -EINVAL;
 		pix = &f->fmt.pix;
+		memset(pix, 0, sizeof(*pix));
+		if (info) {
+			pix->pixelformat = info->id;
+			pix->bytesperline = q_data->coded_width * info->bytesperline_mult;
+		}
 		pix->width = q_data->coded_width;
 		pix->height = q_data->coded_height;
 		pix->field = V4L2_FIELD_NONE;
-		pix->pixelformat = info->id;
-		pix->bytesperline = q_data->coded_width * info->bytesperline_mult;
-		pr_info("dafna: %s: set pix->bytesperline(%u) = q_data->coded_width(%u) * info->bytesperline_mult (%u)\n",__func__,
-				pix->bytesperline,q_data->coded_width,info->bytesperline_mult);
+		pr_info("dafna: %s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix->bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix->sizeimage = q_data->sizeimage;
 		pix->colorspace = ctx->state.colorspace;
 		pix->xfer_func = ctx->state.xfer_func;
@@ -504,15 +507,19 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		if (!multiplanar)
 			return -EINVAL;
 		pix_mp = &f->fmt.pix_mp;
+		memset(pix_mp, 0, sizeof(*pix_mp));
+		if (info) {
+			pix_mp->pixelformat = info->id;
+			pix_mp->plane_fmt[0].bytesperline =
+				q_data->coded_width * info->bytesperline_mult;
+		}
+
 		pix_mp->width = q_data->coded_width;
 		pix_mp->height = q_data->coded_height;
 		pix_mp->field = V4L2_FIELD_NONE;
-		pix_mp->pixelformat = info->id;
 		pix_mp->num_planes = 1;
-		pix_mp->plane_fmt[0].bytesperline =
-				q_data->coded_width * info->bytesperline_mult;
-		pr_info("dafna: %s: set pix_mp->plane_fmt[0].bytesperline(%u) = q_data->coded_width(%u) * info->bytesperline_mult (%u)\n",__func__,
-				pix_mp->plane_fmt[0].bytesperline,q_data->coded_width,info->bytesperline_mult);
+		pr_info("%s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix_mp->plane_fmt[0].bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix_mp->plane_fmt[0].sizeimage = q_data->sizeimage;
 		pix_mp->colorspace = ctx->state.colorspace;
 		pix_mp->xfer_func = ctx->state.xfer_func;
@@ -554,21 +561,20 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		pix = &f->fmt.pix;
 		if (pix->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix->pixelformat);
-		pix->width = vic_round_dim(clamp(pix->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
-		pr_info("%s: dafna format is %s\n",__func__,id_fmt_to_str(pix->pixelformat));
-		pr_info("dafna: %s: h (%u) d = %u h/d = %u, round(h/d) = %u round(h/d)*d = %u",__func__, pix->height,info->height_div, pix->height/info->height_div,
-			round_up(pix->height/info->height_div, 8),round_up(pix->height/info->height_div, 8)*info->height_div);
-		pr_info("%s: dafna: h = %u\n",__func__, vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div));
-		pix->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+		memset(pix, 0, sizeof(*pix));
+		if (info) {
+			pix->width = vic_round_dim(clamp(pix->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
+			pix->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+			pix->bytesperline =
+				pix->width * info->bytesperline_mult;
+			pix->sizeimage = pix->width * pix->height *
+				info->sizeimage_mult / info->sizeimage_div;
+		}
 		pix->field = V4L2_FIELD_NONE;
-		pix->bytesperline =
-			pix->width * info->bytesperline_mult;
-		pr_info("dafna: %s: set pix->bytesperline(%u) = pix->width(%u) * info->bytesperline_mult (%u)\n",__func__,
-				pix->bytesperline,pix->width,info->bytesperline_mult);
-		pix->sizeimage = pix->width * pix->height *
-			info->sizeimage_mult / info->sizeimage_div;
-		pr_info("dafna: %s: pix->sizeimage (%u) = pix->width (%u) * pix->height (%u) * info->sizeimage_mult (%u)/ info->sizeimage_div (%u)\n",__func__, pix->sizeimage, pix->width, pix->height,
-					info->sizeimage_mult, info->sizeimage_div);
+		pr_info("%s: dafna format is %s\n",__func__,id_fmt_to_str(pix->pixelformat));
+		pr_info("%s: %ux%u d = %ux%u",__func__, pix->height,pix->width, info ? info->height_div : 0,info ? info->width_divi : 0);
+		pr_info("%s: set bytesperline(%u) = width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix->bytesperline,pix->width,info ? info->bytesperline_mult : 0);
 
 		if (pix->pixelformat == V4L2_PIX_FMT_FWHT)
 			pix->sizeimage += sizeof(struct fwht_cframe_hdr);
@@ -579,14 +585,17 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		plane = pix_mp->plane_fmt;
 		if (pix_mp->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix_mp->pixelformat);
+		memset(pix_mp, 0, sizeof(*pix_mp));
+		if (info) {
+			pix_mp->width = vic_round_dim(clamp(pix_mp->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
+			pix_mp->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+			plane->bytesperline =
+				pix_mp->width * info->bytesperline_mult;
+			plane->sizeimage = pix_mp->width * pix_mp->height *
+				info->sizeimage_mult / info->sizeimage_div;
+		}
 		pix_mp->num_planes = 1;
-		pix_mp->width = vic_round_dim(clamp(pix_mp->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
-		pix_mp->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
 		pix_mp->field = V4L2_FIELD_NONE;
-		plane->bytesperline =
-			pix_mp->width * info->bytesperline_mult;
-		plane->sizeimage = pix_mp->width * pix_mp->height *
-			info->sizeimage_mult / info->sizeimage_div;
 		if (pix_mp->pixelformat == V4L2_PIX_FMT_FWHT)
 			plane->sizeimage += sizeof(struct fwht_cframe_hdr);
 		memset(pix_mp->reserved, 0, sizeof(pix_mp->reserved));
