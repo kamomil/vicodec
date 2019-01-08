@@ -1174,10 +1174,16 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	struct v4l2_fwht_state *state = &ctx->state;
 	const struct v4l2_fwht_pixfmt_info *info = q_data->info;
 
+	pr_info("dafna: %s buffer type: %s, codec type: %s\n", __func__,
+		V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP", ctx->is_enc ? "enc" : "dec");
+	pr_info("dafna: %s coded wxh %ux%u \n", __func__, q_data->coded_width, q_data->coded_height);
+
+	if (!info) {
+		pr_info("%s: info not set yet\n", __func__);
+		return -EINVAL;
+	}
 	q_data->sequence = 0;
 
-	pr_info("dafna: %s buffer type: %s, codec type: %s\n", __func__, V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP", ctx->is_enc ? "enc" : "dec");
-	pr_info("dafna: %s coded width = %u coded height = %u \n", __func__, q_data->coded_width, q_data->coded_height);
 
 //	pr_info("dafna: %s rounded width = %u\n", __func__, vic_round_dim(q_data->coded_width, info->width_div));
 
@@ -1230,7 +1236,7 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 			state->ref_frame.cr = NULL;
 		}
 
-		pr_info("dafna: %s  l = %p b = %p r = %p\n",__func__, state->ref_frame.luma, state->ref_frame.cb , state->ref_frame.cr);
+		pr_info("%s: l,b,r = %p, %p, %p\n",__func__, state->ref_frame.luma, state->ref_frame.cb , state->ref_frame.cr);
 		if (info->components_num == 4)
 			state->ref_frame.alpha =
 				state->ref_frame.cr + size / chroma_div;
