@@ -45,8 +45,10 @@ const char* id_fmt_to_str(u32 id){
 			return "V4L2_PIX_FMT_ABGR32";
 		case V4L2_PIX_FMT_GREY:
 			return "V4L2_PIX_FMT_GREY";
+		case V4L2_PIX_FMT_FWHT:
+			return "V4L2_PIX_FMT_FWHT";
 	}
-	return "not set";
+	return "NOT SET";
 };
 
 static const uint8_t zigzag[64] = {
