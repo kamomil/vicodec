@@ -37,6 +37,20 @@ static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
 	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1, 1},
 };
 
+const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 height_div,
+							  u32 planes_num, unsigned int start_idx)
+{
+	unsigned int i;
+	pr_info("%s: div %ux%u planes_num %u start_idx %u\n", __func__, width_div, height_div, planes_num, start_idx);
+	for (i = start_idx; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++)
+		if (v4l2_fwht_pixfmts[i].width_div == width_div &&
+		    v4l2_fwht_pixfmts[i].height_div == height_div &&
+		    (!planes_num || v4l2_fwht_pixfmts[i].components_num == planes_num))
+			return v4l2_fwht_pixfmts + i;
+	pr_info("%s: no info found\n", __func__);
+	return NULL;
+}
+
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_find_pixfmt(u32 pixelformat)
 {
 	unsigned int i;
