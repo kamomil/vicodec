@@ -129,7 +129,7 @@ struct vicodec_ctx {
 	bool			comp_has_frame;
 	bool			comp_has_next_frame;
 	struct fwht_cframe_hdr	first_header;
-	u32			first_header_cnt;
+	bool			first_source_change_sent;
 };
 
 static inline struct vicodec_ctx *file2ctx(struct file *file)
@@ -286,6 +286,67 @@ static void job_remove_src_buf(struct vicodec_ctx *ctx, u32 state)
 	spin_unlock(ctx->lock);
 }
 
+enum vb2_buffer_state static int get_next_header(struct vicodec_ctx *ctx,
+						 u8 *p_src, u32 sz, u8 *header, u8 **pp)
+{
+	static const u8 magic[] = {
+		0x4f, 0x4f, 0x4f, 0x4f, 0xff, 0xff, 0xff, 0xff
+	};
+	u8 *p == *pp;
+	u32 state;
+
+	state = VB2_BUF_STATE_DONE;
+
+	pr_info("%s: before magic copy p=%p p_src+sz=%p sz=%u\n", __func__,p,p_src+sz,sz);
+	if (!ctx->comp_size) {
+		state = VB2_BUF_STATE_ERROR;
+		for (; p < p_src + sz; p++) {
+			u32 copy;
+
+			p = memchr(p, magic[ctx->comp_magic_cnt],
+					p_src + sz - p);
+			if (!p) {
+				ctx->comp_magic_cnt = 0;
+				break;
+			}
+			copy = sizeof(magic) - ctx->comp_magic_cnt;
+			if (p_src + sz - p < copy)
+				copy = p_src + sz - p;
+			pr_info("dafna: %s copying %u to compressed_frame\n", __func__,copy);
+
+			memcpy(header + ctx->comp_magic_cnt, p, copy);
+			ctx->comp_magic_cnt += copy;
+			if (!memcmp(header, magic, ctx->comp_magic_cnt)) {
+				p += copy;
+				state = VB2_BUF_STATE_DONE;
+				break;
+			}
+			ctx->comp_magic_cnt = 0;
+		}
+		if (ctx->comp_magic_cnt < sizeof(magic)) {
+			*pp = p;
+			return state;
+		}
+		ctx->comp_size = sizeof(magic);
+	}
+
+	pr_info("%s: after magic copy p=%p p_src+sz=%p sz = %u\n", __func__,p,p_src+sz,sz);
+	if (ctx->comp_size < sizeof(struct fwht_cframe_hdr)) {
+		u32 copy = sizeof(struct fwht_cframe_hdr) - ctx->comp_size;
+
+		if (copy > p_src + sz - p)
+			copy = p_src + sz - p;
+
+		pr_info("dafna: %s copying AGAIN %u to compressed_frame\n", __func__,copy);
+		memcpy(header + ctx->comp_size, p, copy);
+		p += copy;
+		ctx->comp_size += copy;
+		*pp = p;
+	}
+	return state;
+}
+
+
 static int job_ready(void *priv)
 {
 	static const u8 magic[] = {
@@ -297,7 +358,7 @@ static int job_ready(void *priv)
 	u8 *p;
 	u32 sz;
 	u32 state;
-
+	struct fwht_cframe_hdr *p_hdr;
 	pr_info("dafna: %s\n", __func__);
 	if (ctx->is_enc || ctx->comp_has_frame)
 		return 1;
@@ -313,59 +374,17 @@ restart:
 
 	state = VB2_BUF_STATE_DONE;
 
-	if (!ctx->comp_size) {
-		state = VB2_BUF_STATE_ERROR;
-		for (; p < p_src + sz; p++) {
-			u32 copy;
-
-			p = memchr(p, magic[ctx->comp_magic_cnt],
-				   p_src + sz - p);
-			if (!p) {
-				ctx->comp_magic_cnt = 0;
-				break;
-			}
-			copy = sizeof(magic) - ctx->comp_magic_cnt;
-			if (p_src + sz - p < copy)
-				copy = p_src + sz - p;
-			pr_info("dafna: %s copying %u to compressed_frame\n", __func__,copy);
-
-			memcpy(ctx->state.compressed_frame + ctx->comp_magic_cnt,
-			       p, copy);
-			ctx->comp_magic_cnt += copy;
-			if (!memcmp(ctx->state.compressed_frame, magic,
-				    ctx->comp_magic_cnt)) {
-				p += copy;
-				state = VB2_BUF_STATE_DONE;
-				break;
-			}
-			ctx->comp_magic_cnt = 0;
-		}
-		if (ctx->comp_magic_cnt < sizeof(magic)) {
-			job_remove_src_buf(ctx, state);
-			goto restart;
-		}
-		ctx->comp_size = sizeof(magic);
-	}
+	if (ctx->comp_size < sizeof(struct fwht_cframe_hdr))
+		state = get_next_header(ctx, p_src, sz, ctx->state.compressed_frame, &p);
 	if (ctx->comp_size < sizeof(struct fwht_cframe_hdr)) {
-		struct fwht_cframe_hdr *p_hdr =
-			(struct fwht_cframe_hdr *)ctx->state.compressed_frame;
-		u32 copy = sizeof(struct fwht_cframe_hdr) - ctx->comp_size;
-
-		if (copy > p_src + sz - p)
-			copy = p_src + sz - p;
-
-		pr_info("dafna: %s copying AGAIN %u to compressed_frame\n", __func__,copy);
-		memcpy(ctx->state.compressed_frame + ctx->comp_size,
-		       p, copy);
-		p += copy;
-		ctx->comp_size += copy;
-		if (ctx->comp_size < sizeof(struct fwht_cframe_hdr)) {
-			job_remove_src_buf(ctx, state);
-			goto restart;
-		}
-		ctx->comp_frame_size = ntohl(p_hdr->size) + sizeof(*p_hdr);
-		if (ctx->comp_frame_size > ctx->comp_max_size)
-			ctx->comp_frame_size = ctx->comp_max_size;
+		job_remove_src_buf(ctx, state);
+		goto restart;
+	}
+	p_hdr = (struct fwht_cframe_hdr *)ctx->state.compressed_frame;
+	ctx->comp_frame_size = ntohl(p_hdr->size) + sizeof(*p_hdr);
+	pr_info("dafna: %s size in header is %u\n", __func__,ctx->comp_frame_size);
+	if (ctx->comp_frame_size > ctx->comp_max_size)
+		ctx->comp_frame_size = ctx->comp_max_size;
 	}
 	if (ctx->comp_size < ctx->comp_frame_size) {
 		u32 copy = ctx->comp_frame_size - ctx->comp_size;
@@ -1110,64 +1129,75 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 	struct vicodec_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 	unsigned int sz = vb2_get_plane_payload(&vbuf->vb2_buf, 0);
 	u8 *p_src = vb2_plane_vaddr(&vbuf->vb2_buf, 0);
+	u8* p = NULL;
+	struct vb2_queue *vq_out = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
+	struct vb2_queue *vq_cap = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 
 	pr_info("%s: %x%x%x%x %x%x%x%x\n",__func__, p_src[0],p_src[1],p_src[2],p_src[3], p_src[4], p_src[5], p_src[6], p_src[7]);
 
-	pr_info("%s: first hdr cnt = %u\n",__func__, ctx->first_header_cnt);
-	if (!ctx->is_enc && V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type) &&
-	   ctx->first_header_cnt != sizeof(struct fwht_cframe_hdr)) {
-		unsigned int left_to_read = sizeof(struct fwht_cframe_hdr) - ctx->first_header_cnt;
-		unsigned int copy = min(sz, left_to_read);
+	if (ctx->first_source_change_sent ||
+	    (vb2_is_streaming(vq_out) && vb2_is_streaming(vq_cap))) {
+		v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
+		return;
+	}
 
-		memcpy(&ctx->first_header, p_src, copy);
-		ctx->first_header_cnt += copy;
-		if (ctx->first_header_cnt == sizeof(struct fwht_cframe_hdr)) {
-			struct fwht_cframe_hdr *p_hdr = &ctx->first_header;
-			struct vicodec_q_data *q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-			const struct v4l2_fwht_pixfmt_info *info;
-			unsigned int flags = ntohl(p_hdr->flags);
-			unsigned int hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
-			unsigned int hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-			unsigned int comp_num = 0;
-			unsigned int version = ntohl(p_hdr->version);
-			static const struct v4l2_event rs_event = {
-				.type = V4L2_EVENT_SOURCE_CHANGE,
-				.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
-			};
+	if (!ctx->is_enc && V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
+		enum vb2_buffer_state state = get_next_header(ctx, p_src, u32 sz, &ctx->first_header, &p);
 
-			if (version == FWHT_VERSION) {
-				comp_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
-						FWHT_FL_COMPONENTS_NUM_OFFSET);
-			}
-			info = v4l2_fwht_default_fmt(hdr_width_div, hdr_height_div, comp_num, 0);
-			if (p_hdr->magic1 != FWHT_MAGIC1 || p_hdr->magic2 != FWHT_MAGIC2 ||
-					!p_hdr->version || ntohl(p_hdr->version) > FWHT_VERSION) {
-				v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
-				pr_info("%s: bad header\n", __func__);
-				return;
-			}
-			if (!info) {
-				pr_info("%s: bad format flags div: %ux%u, comp_num: %u\n", __func__,
+		if (ctx->comp_size < sizeof(struct fwht_cframe_hdr)) {
+			v4l2_m2m_buf_done(src_buf, state);
+			job_remove_src_buf(ctx, state);
+			return;
+		}
+		if (p < p_src + sz)
+			ctx->cur_buf_offset = p - p_src;
+		struct fwht_cframe_hdr *p_hdr = &ctx->first_header;
+		struct vicodec_q_data *q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
+		const struct v4l2_fwht_pixfmt_info *info;
+		unsigned int flags = ntohl(p_hdr->flags);
+		unsigned int hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
+		unsigned int hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
+		unsigned int comp_num = 0;
+		unsigned int version = ntohl(p_hdr->version);
+		static const struct v4l2_event rs_event = {
+			.type = V4L2_EVENT_SOURCE_CHANGE,
+			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+		};
+
+		if (version == FWHT_VERSION) {
+			comp_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
+					FWHT_FL_COMPONENTS_NUM_OFFSET);
+		}
+		info = v4l2_fwht_default_fmt(hdr_width_div, hdr_height_div, comp_num, 0);
+		if (p_hdr->magic1 != FWHT_MAGIC1 || p_hdr->magic2 != FWHT_MAGIC2 ||
+				!p_hdr->version || ntohl(p_hdr->version) > FWHT_VERSION) {
+			v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
+			pr_info("%s: bad header\n", __func__);
+			return;
+		}
+		if (!info) {
+			pr_info("%s: bad format flags div: %ux%u, comp_num: %u\n", __func__,
 					hdr_width_div, hdr_height_div, comp_num);
-				return;
-			}
-			q_dst->info = info;
-			q_dst->visible_width = ntohl(p_hdr->width);
-			q_dst->visible_height = ntohl(p_hdr->height);
-			q_dst->coded_width = vic_round_dim(q_dst->visible_width, hdr_width_div);
-			q_dst->coded_height = vic_round_dim(q_dst->visible_height, hdr_height_div);
+			return;
+		}
+		q_dst->info = info;
+		q_dst->visible_width = ntohl(p_hdr->width);
+		q_dst->visible_height = ntohl(p_hdr->height);
+		q_dst->coded_width = vic_round_dim(q_dst->visible_width, hdr_width_div);
+		q_dst->coded_height = vic_round_dim(q_dst->visible_height, hdr_height_div);
 
-			q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
-				q_dst->info->sizeimage_mult / q_dst->info->sizeimage_div;
-			ctx->state.colorspace = ntohl(p_hdr->colorspace);
+		q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
+			q_dst->info->sizeimage_mult / q_dst->info->sizeimage_div;
+		ctx->state.colorspace = ntohl(p_hdr->colorspace);
 
-			ctx->state.xfer_func = ntohl(p_hdr->xfer_func);
-			ctx->state.ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
-			ctx->state.quantization = ntohl(p_hdr->quantization);
-			v4l2_event_queue_fh(&ctx->fh, &rs_event);
-			pr_info("%s: cnt = %u dim %ux%u div %ux%u\n",__func__, ctx->first_header_cnt, q_dst->visible_width, q_dst->visible_height, hdr_width_div, hdr_height_div);
-			pr_info("%s: %u\n",__func__, info->id);
-			pr_info("%s: dafna format is '%s'\n",__func__,id_fmt_to_str(info->id));
+		ctx->state.xfer_func = ntohl(p_hdr->xfer_func);
+		ctx->state.ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
+		ctx->state.quantization = ntohl(p_hdr->quantization);
+		ctx->first_source_change_sent = true;
+		v4l2_event_queue_fh(&ctx->fh, &rs_event);
+		pr_info("%s: cnt = %u dim %ux%u div %ux%u\n",__func__, ctx->first_header_cnt, q_dst->visible_width, q_dst->visible_height, hdr_width_div, hdr_height_div);
+		pr_info("%s: %u\n",__func__, info->id);
+		pr_info("%s: dafna format is '%s'\n",__func__,id_fmt_to_str(info->id));
 		}
 	}
 	v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
@@ -1215,9 +1245,9 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	ctx->last_src_buf = NULL;
 	ctx->last_dst_buf = NULL;
 	state->gop_cnt = 0;
-	ctx->cur_buf_offset = 0;
-	ctx->comp_size = 0;
-	ctx->comp_magic_cnt = 0;
+	//ctx->cur_buf_offset = 0;
+	//ctx->comp_size = 0;
+	//ctx->comp_magic_cnt = 0;
 	ctx->comp_has_frame = false;
 
 	if ((!V4L2_TYPE_IS_OUTPUT(q->type) && !ctx->is_enc) ||
@@ -1253,6 +1283,9 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 			vicodec_return_bufs(q, VB2_BUF_STATE_QUEUED);
 			return -ENOMEM;
 		}
+		if (ctx->comp_size)
+			memcpy(state->compressed_frame, ctx->first_header, ctx->comp_size);
+
 		if (info->components_num >= 3) {
 			state->ref_frame.cb = state->ref_frame.luma + size;
 			state->ref_frame.cr = state->ref_frame.cb + size / chroma_div;
@@ -1282,6 +1315,18 @@ static void vicodec_stop_streaming(struct vb2_queue *q)
 	    (V4L2_TYPE_IS_OUTPUT(q->type) && ctx->is_enc)) {
 		kvfree(ctx->state.ref_frame.luma);
 		kvfree(ctx->state.compressed_frame);
+	}
+	if (V4L2_TYPE_IS_OUTPUT(q->type) && !ctx->is_enc) {
+		ctx->cur_buf_offset = 0;
+		ctx->comp_max_size = 0;
+		comp_size = 0;
+		comp_magic_cnt = 0;
+		comp_frame_size = 0;
+		comp_has_frame = 0;
+		comp_has_next_frame = 0;
+		//TODO - should first_even also initialize ?
+		//bool			first_source_change_sent;
+
 	}
 }
 
