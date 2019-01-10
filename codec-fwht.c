@@ -26,6 +26,31 @@
 
 #define ALL_ZEROS 15
 
+const char* id_fmt_to_str(u32 id){
+
+	switch(id) {
+		case V4L2_PIX_FMT_YUV420:
+			return "V4L2_PIX_FMT_YUV420";
+		case V4L2_PIX_FMT_YVU420:
+			return "V4L2_PIX_FMT_YVU420";
+		case V4L2_PIX_FMT_YUV422P:
+			return "V4L2_PIX_FMT_YUV422P";
+		case V4L2_PIX_FMT_BGR24:
+			return "V4L2_PIX_FMT_BGR24";
+		case V4L2_PIX_FMT_RGB24:
+			return "V4L2_PIX_FMT_RGB24";
+		case V4L2_PIX_FMT_ARGB32:
+			return "V4L2_PIX_FMT_ARGB32";
+		case V4L2_PIX_FMT_ABGR32:
+			return "V4L2_PIX_FMT_ABGR32";
+		case V4L2_PIX_FMT_GREY:
+			return "V4L2_PIX_FMT_GREY";
+		case V4L2_PIX_FMT_FWHT:
+			return "V4L2_PIX_FMT_FWHT";
+	}
+	return "NOT SET";
+};
+
 static const uint8_t zigzag[64] = {
 	0,
 	1,  8,
@@ -672,6 +697,7 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 
 	width = round_up(width, 8);
 	height = round_up(height, 8);
+	pr_info("dafna: %s: start w=%u h=%u\n",__func__,width,height);
 
 	for (j = 0; j < height / 8; j++) {
 		input = input_start + j * 8 * stride;
@@ -732,6 +758,7 @@ exit_loop:
 		u8 *out = (u8 *)rlco_start;
 		u8 *p;
 
+		pr_info("dafna: %s: plane unencoded\n",__func__);
 		input = input_start;
 		/*
 		 * The compressed stream should never contain the magic
@@ -740,14 +767,14 @@ exit_loop:
 		 * shouldn't appear anyway.
 		 */
 		for (j = 0; j < height; j++) {
-			for (i = 0, p = input; i < width; i++, p += input_step) {
+			for (i = 0, p = input; i < width; i++, p += input_step)
 				*out++ = (*p == 0xff) ? 0xfe : *p;
-			}
 			input += stride;
 		}
 		*rlco = (__be16 *)out;
 		encoding &= ~FWHT_FRAME_PCODED;
 	}
+	pr_info("dafna: %s: end\n",__func__);
 	return encoding;
 }
 
@@ -825,6 +852,7 @@ static void decode_plane(struct fwht_cframe *cf, const __be16 **rlco, u8 *ref,
 		*rlco += width * height / 2;
 		return;
 	}
+
 	/*
 	 * When decoding each macroblock the rlco pointer will be increased
 	 * by 65 * 2 bytes worst-case.
