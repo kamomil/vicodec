@@ -286,18 +286,81 @@ static void job_remove_src_buf(struct vicodec_ctx *ctx, u32 state)
 	spin_unlock(ctx->lock);
 }
 
-enum vb2_buffer_state static int get_next_header(struct vicodec_ctx *ctx,
-						 u8 *p_src, u32 sz, u8 *header, u8 **pp)
+static const struct v4l2_fwht_pixfmt_info *info_from_header(struct fwht_cframe_hdr p_hdr)
+{
+	unsigned int flags = ntohl(p_hdr.flags);
+	unsigned int width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
+	unsigned int height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
+	unsigned int components_num = 0;
+	unsigned int version = ntohl(p_hdr.version);
+
+	if (version == FWHT_VERSION) {
+		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
+				FWHT_FL_COMPONENTS_NUM_OFFSET);
+	}
+	return v4l2_fwht_default_fmt(width_div, height_div, components_num, 0);
+}
+
+static bool is_header_valid(struct fwht_cframe_hdr p_hdr)
+{
+	const struct v4l2_fwht_pixfmt_info *info;
+	unsigned int w = ntohl(p_hdr.width);
+	unsigned int h = ntohl(p_hdr.height);
+
+	if (p_hdr.magic1 != FWHT_MAGIC1 || p_hdr.magic2 != FWHT_MAGIC2 ||
+			!p_hdr.version || ntohl(p_hdr.version) > FWHT_VERSION) {
+		return false;
+	}
+	if (w < MIN_WIDTH || w > MAX_WIDTH || h < MIN_HEIGHT || h > MAX_HEIGHT)
+		return false;
+
+	info = info_from_header(p_hdr);
+	if (!info)
+		return false;
+	return true;
+}
+
+static void update_capture_data_from_header(struct vicodec_ctx *ctx,
+		struct fwht_cframe_hdr p_hdr)
+{
+	struct vicodec_q_data *q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
+	const struct v4l2_fwht_pixfmt_info *info = info_from_header(p_hdr);
+	unsigned int flags = ntohl(p_hdr.flags);
+	unsigned int hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
+	unsigned int hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
+
+	q_dst->info = info;
+	q_dst->visible_width = ntohl(p_hdr.width);
+	q_dst->visible_height = ntohl(p_hdr.height);
+	q_dst->coded_width = vic_round_dim(q_dst->visible_width, hdr_width_div);
+	q_dst->coded_height = vic_round_dim(q_dst->visible_height, hdr_height_div);
+
+	q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
+		q_dst->info->sizeimage_mult / q_dst->info->sizeimage_div;
+	ctx->state.colorspace = ntohl(p_hdr.colorspace);
+
+	ctx->state.xfer_func = ntohl(p_hdr.xfer_func);
+	ctx->state.ycbcr_enc = ntohl(p_hdr.ycbcr_enc);
+	ctx->state.quantization = ntohl(p_hdr.quantization);
+	pr_info("%s: dim %ux%u div %ux%u\n",__func__,
+			q_dst->visible_width,
+			q_dst->visible_height, hdr_width_div, hdr_height_div);
+	pr_info("%s: %u\n",__func__, info->id);
+	pr_info("%s: dafna format is '%s'\n",__func__,id_fmt_to_str(info->id));
+}
+
+enum vb2_buffer_state get_next_header(struct vicodec_ctx *ctx, u8 *p_src,
+				      u32 sz, u8 *header, u8 **pp)
 {
 	static const u8 magic[] = {
 		0x4f, 0x4f, 0x4f, 0x4f, 0xff, 0xff, 0xff, 0xff
 	};
-	u8 *p == *pp;
+	u8 *p = *pp;
 	u32 state;
 
 	state = VB2_BUF_STATE_DONE;
 
-	pr_info("%s: before magic copy p=%p p_src+sz=%p sz=%u\n", __func__,p,p_src+sz,sz);
+	pr_info("%s: before magic copy p=%p p_src+sz=%p sz=%u\n", __func__, pp, p_src+sz, sz);
 	if (!ctx->comp_size) {
 		state = VB2_BUF_STATE_ERROR;
 		for (; p < p_src + sz; p++) {
@@ -346,7 +409,6 @@ enum vb2_buffer_state static int get_next_header(struct vicodec_ctx *ctx,
 	return state;
 }
 
-
 static int job_ready(void *priv)
 {
 	static const u8 magic[] = {
@@ -390,7 +452,7 @@ restart:
 	pr_info("dafna: %s size in header is %u\n", __func__,ctx->comp_frame_size);
 	if (ctx->comp_frame_size > ctx->comp_max_size)
 		ctx->comp_frame_size = ctx->comp_max_size;
-	}
+
 	if (ctx->comp_size < ctx->comp_frame_size) {
 		u32 copy = ctx->comp_frame_size - ctx->comp_size;
 
@@ -435,10 +497,10 @@ restart:
 	    hdr_height_div != q_dst->info->height_div) {
 		static const struct v4l2_event rs_event = {
 			.type = V4L2_EVENT_SOURCE_CHANGE,
-			.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
 		};
 
-		update_capture_data_from_header();
+		update_capture_data_from_header(ctx, *p_hdr);
 		ctx->first_source_change_sent = true;
 		v4l2_event_queue_fh(&ctx->fh, &rs_event);
 	}
@@ -1110,10 +1172,11 @@ static int vicodec_buf_prepare(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct vicodec_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 	struct vicodec_q_data *q_data;
+	u8 *p_src = vb2_plane_vaddr(&vbuf->vb2_buf, 0);
 
 	dprintk(ctx->dev, "type: %d\n", vb->vb2_queue->type);
-	u8 *p_src = vb2_plane_vaddr(&vbuf->vb2_buf, 0);
-	pr_info("%s: %x%x%x%x %x%x%x%x\n",__func__, p_src[0],p_src[1],p_src[2],p_src[3], p_src[4], p_src[5], p_src[6], p_src[7]);
+	pr_info("%s: %x%x%x%x %x%x%x%x\n",__func__, p_src[0],p_src[1],p_src[2],p_src[3],
+					  p_src[4], p_src[5], p_src[6], p_src[7]);
 
 	q_data = get_q_data(ctx, vb->vb2_queue->type);
 	if (V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
@@ -1151,71 +1214,6 @@ struct fwht_cframe_hdr {
 };
 */
 
-struct v4l2_fwht_pixfmt_info *info_from_header(struct fwht_cframe_hdr p_hdr)
-{
-	const struct v4l2_fwht_pixfmt_info *info;
-	unsigned int flags = ntohl(p_hdr->flags);
-	unsigned int width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
-	unsigned int height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-	unsigned int components_num = 0;
-	unsigned int version = ntohl(p_hdr->version);
-
-	if (version == FWHT_VERSION) {
-		components_num = 1 + ((iflags & FWHT_FL_COMPONENTS_NUM_MSK) >>
-				FWHT_FL_COMPONENTS_NUM_OFFSET);
-	}
-	return v4l2_fwht_default_fmt(width_div, height_div, components_num, 0);
-}
-
-static bool is_header_valid(struct fwht_cframe_hdr p_hdr)
-{
-	const struct v4l2_fwht_pixfmt_info *info;
-	unsigned int flags = ntohl(p_hdr->flags);
-	unsigned int w = ntohl(p_hdr->width);
-	unsigned int h = ntohl(p_hdr->height);
-	unsigned int version = ntohl(p_hdr->version);
-
-	if (p_hdr->magic1 != FWHT_MAGIC1 || p_hdr->magic2 != FWHT_MAGIC2 ||
-			!p_hdr->version || ntohl(p_hdr->version) > FWHT_VERSION) {
-		return false;
-	}
-	if (w < MIN_WIDTH || w > MAX_WIDTH || h < MIN_HEIGHT || h > MAX_HEIGHT)
-		return false;
-
-	info = info_from_header(p_hdr);
-	if (!info)
-		return false;
-}
-
-static void update_capture_data_from_header(struct vicodec_ctx *ctx,
-				   	    struct fwht_cframe_hdr p_hdr)
-{
-	struct vicodec_q_data *q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-	const struct v4l2_fwht_pixfmt_info *info = info_from_header(p_hdr);
-	unsigned int flags = ntohl(p_hdr->flags);
-	unsigned int hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
-	unsigned int hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-
-	q_dst->info = info;
-	q_dst->visible_width = ntohl(p_hdr->width);
-	q_dst->visible_height = ntohl(p_hdr->height);
-	q_dst->coded_width = vic_round_dim(q_dst->visible_width, hdr_width_div);
-	q_dst->coded_height = vic_round_dim(q_dst->visible_height, hdr_height_div);
-
-	q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
-		q_dst->info->sizeimage_mult / q_dst->info->sizeimage_div;
-	ctx->state.colorspace = ntohl(p_hdr->colorspace);
-
-	ctx->state.xfer_func = ntohl(p_hdr->xfer_func);
-	ctx->state.ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
-	ctx->state.quantization = ntohl(p_hdr->quantization);
-	pr_info("%s: cnt = %u dim %ux%u div %ux%u\n",__func__,
-		ctx->first_header_cnt, q_dst->visible_width,
-		q_dst->visible_height, hdr_width_div, hdr_height_div);
-	pr_info("%s: %u\n",__func__, info->id);
-	pr_info("%s: dafna format is '%s'\n",__func__,id_fmt_to_str(info->id));
-}
-
 static void vicodec_buf_queue(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
@@ -1236,27 +1234,27 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 	}
 
 	if (!ctx->is_enc && V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
-		bool is_header_valid = false;
+		bool header_valid = false;
 		static const struct v4l2_event rs_event = {
 			.type = V4L2_EVENT_SOURCE_CHANGE,
 			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
 		};
 
 		do {
-			enum vb2_buffer_state state = next_header(ctx, p_src, sz,
-								  &ctx->first_header, &p);
+			enum vb2_buffer_state state = get_next_header(ctx, p_src, sz,
+								  (u8*)&ctx->first_header, &p);
 
 			if (ctx->comp_size < sizeof(struct fwht_cframe_hdr)) {
-				v4l2_m2m_buf_done(src_buf, state);
+				v4l2_m2m_buf_done(vbuf, state);
 				job_remove_src_buf(ctx, state);
 				return;
 			}
-			is_header_valid = validate_header(ctx->first_header);
-		} while (!is_header_valid)
+			header_valid = is_header_valid(ctx->first_header);
+		} while (!header_valid);
 		if (p < p_src + sz)
 			ctx->cur_buf_offset = p - p_src;
 
-		update_capture_data_from_header(ctx, ctx->first_header)
+		update_capture_data_from_header(ctx, ctx->first_header);
 		ctx->first_source_change_sent = true;
 		v4l2_event_queue_fh(&ctx->fh, &rs_event);
 	}
@@ -1344,7 +1342,7 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 			return -ENOMEM;
 		}
 		if (ctx->comp_size)
-			memcpy(state->compressed_frame, ctx->first_header, ctx->comp_size);
+			memcpy(state->compressed_frame, &ctx->first_header, ctx->comp_size);
 
 		if (info->components_num >= 3) {
 			state->ref_frame.cb = state->ref_frame.luma + size;
@@ -1379,11 +1377,11 @@ static void vicodec_stop_streaming(struct vb2_queue *q)
 	if (V4L2_TYPE_IS_OUTPUT(q->type) && !ctx->is_enc) {
 		ctx->cur_buf_offset = 0;
 		ctx->comp_max_size = 0;
-		comp_size = 0;
-		comp_magic_cnt = 0;
-		comp_frame_size = 0;
-		comp_has_frame = 0;
-		comp_has_next_frame = 0;
+		ctx->comp_size = 0;
+		ctx->comp_magic_cnt = 0;
+		ctx->comp_frame_size = 0;
+		ctx->comp_has_frame = 0;
+		ctx->comp_has_next_frame = 0;
 		//TODO - should first_even also initialize ?
 		//bool			first_source_change_sent;
 
