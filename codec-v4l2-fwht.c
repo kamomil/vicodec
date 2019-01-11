@@ -38,14 +38,14 @@ static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
 };
 
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 height_div,
-							  u32 planes_num, unsigned int start_idx)
+							  u32 components_num, unsigned int start_idx)
 {
 	unsigned int i;
-	pr_info("%s: div %ux%u planes_num %u start_idx %u\n", __func__, width_div, height_div, planes_num, start_idx);
+	pr_info("%s: div %ux%u planes_num %u start_idx %u\n", __func__, width_div, height_div, components_num, start_idx);
 	for (i = start_idx; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++)
 		if (v4l2_fwht_pixfmts[i].width_div == width_div &&
 		    v4l2_fwht_pixfmts[i].height_div == height_div &&
-		    (!planes_num || v4l2_fwht_pixfmts[i].components_num == planes_num))
+		    (!components_num || v4l2_fwht_pixfmts[i].components_num == components_num))
 			return v4l2_fwht_pixfmts + i;
 	pr_info("%s: no info found\n", __func__);
 	return NULL;
@@ -92,14 +92,17 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	rf.components_num = info->components_num;
 
 
-	pr_info("dafna: %s: V4L2_PIX_FMT is %u coded wxh: %ux%u\n",__func__, info->id,state->coded_width, state->coded_height);
+	pr_info("dafna: %s: V4L2_PIX_FMT is %s coded wxh: %ux%u\n",__func__, id_fmt_to_str(info->id),state->coded_width, state->coded_height);
+	pr_info("dafna: %s: div: %ux%u\n",__func__, info->width_div,info->height_div);
 	pr_info("dafna: %s: rf.luma_alpha_step = %u size = %u\n",__func__, rf.luma_alpha_step, size);
+	/*
 	pr_info("dafna: %s: p_in[0] = %u\n",__func__, p_in[0]);
 	pr_info("dafna: %s: p_in[1] = %u\n",__func__, p_in[1]);
 
 	pr_info("dafna: %s: p_in[s*%u*1] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*1]);
 	pr_info("dafna: %s: p_in[s*%u*2] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*2]);
 	pr_info("dafna: %s: p_in[s*%u*3] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*3]);
+	*/
 
 	switch (info->id) {
 	case V4L2_PIX_FMT_GREY:
@@ -190,6 +193,7 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	default:
 		return -EINVAL;
 	}
+	/*
 	pr_info("dafna: %s: rf.luma[s*%u*1] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*state->coded_width*1]);
 	pr_info("dafna: %s: rf.luma[s*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*state->coded_width*2]);
 	pr_info("dafna: %s: rf.luma[s*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.luma[rf.luma_alpha_step*state->coded_width*3]);
@@ -205,6 +209,7 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		pr_info("dafna: %s: rf.cr[s/2*%u*2] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(state->coded_width/2)*2]);
 		pr_info("dafna: %s: rf.cr[s/2*%u*3] = %u\n",__func__, rf.luma_alpha_step, rf.cr[rf.luma_alpha_step*(state->coded_width/2)*3]);
 	}
+	*/
 
 	cf.i_frame_qp = state->i_frame_qp;
 	cf.p_frame_qp = state->p_frame_qp;
@@ -243,10 +248,10 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	if (rf.width_div == 1)
 		flags |= FWHT_FL_CHROMA_FULL_WIDTH;
 
-	pr_info("ENCODING luma UN compressed: %lu\n", flags & FWHT_FL_LUMA_IS_UNCOMPRESSED);
-	pr_info("cb UN compressed: %lu\n", flags & FWHT_FL_CB_IS_UNCOMPRESSED);
-	pr_info("cr UN compressed: %lu\n", flags & FWHT_FL_CR_IS_UNCOMPRESSED);
-	pr_info("alpha UN compressed: %lu\n", flags & FWHT_FL_ALPHA_IS_UNCOMPRESSED);
+	pr_info("luma %scomp\n", flags & FWHT_FL_LUMA_IS_UNCOMPRESSED ? " " :"not-");
+	pr_info("cb %scomp\n", flags & FWHT_FL_CB_IS_UNCOMPRESSED ? " " :"not-");
+	pr_info("cr %scomp\n", flags & FWHT_FL_CR_IS_UNCOMPRESSED ? " " :"not-");
+	pr_info("rf.div: %ux%u\n", rf.width_div, rf.height_div);
 
 	p_hdr->flags = htonl(flags);
 	p_hdr->colorspace = htonl(state->colorspace);
@@ -287,16 +292,18 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	    p_hdr->magic2 != FWHT_MAGIC2)
 		return -EINVAL;
 
-	state->visible_width = ntohl(p_hdr->width);
-	state->visible_height = ntohl(p_hdr->height);
 
+	pr_info("dafna: %s: FMT is %s coded wxh: %ux%u\n",__func__, id_fmt_to_str(info->id),
+			state->coded_width, state->coded_height);
 	pr_info("dafna: %s state->visible_width %u state->visible_height %u stride = %u\n",
 			__func__, state->visible_width, state->visible_height,state->coded_width);
 
 	/* TODO: support resolution changes */
 	if (ntohl(p_hdr->width)  != state->visible_width ||
-	    ntohl(p_hdr->height) != state->visible_height)
+	    ntohl(p_hdr->height) != state->visible_height) {
+		pr_info("%s: dim dont match: %ux%u\n", __func__, ntohl(p_hdr->width), ntohl(p_hdr->height));
 		return -EINVAL;
+	}
 
 	flags = ntohl(p_hdr->flags);
 
@@ -313,8 +320,10 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 
 	hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
 	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-	if (hdr_width_div != info->width_div || hdr_height_div != info->height_div)
+	if (hdr_width_div != info->width_div || hdr_height_div != info->height_div) {
+		pr_info("%s: dim dont match: %ux%u\n", __func__, ntohl(p_hdr->width), ntohl(p_hdr->height));
 		return -EINVAL;
+	}
 
 	pr_info("dafna: %s, in_p = %p, out_p = %p\n",__func__, p_in, p_out);
 	pr_info("dafna: %s, ref_frame.luma = %p, ref_frame.cb = %p, ref_frame.cr = %p\n",__func__, state->ref_frame.luma, state->ref_frame.cb, state->ref_frame.cr);
