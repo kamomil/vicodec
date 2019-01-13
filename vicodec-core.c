@@ -413,7 +413,7 @@ static void set_last_buffer(struct vb2_v4l2_buffer *dst_buf,
 {
 	struct vicodec_q_data *q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 	
-	pr_info("%s: setting last buffer %p\n", __func__, dst_buf);
+	pr_info("%s: setting last buffer %p (%p)\n", __func__, dst_buf, &dst_buf->vb2_buf);
 	vb2_set_plane_payload(&dst_buf->vb2_buf, 0, 0);
 	dst_buf->sequence = q_dst->sequence++;
 	dst_buf->vb2_buf.timestamp = src_buf->vb2_buf.timestamp;
