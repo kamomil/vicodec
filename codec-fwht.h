@@ -53,7 +53,6 @@
  *
  * Note that these two magic values are symmetrical so endian issues here.
  */
-#include <linux/videodev2.h>
 #define FWHT_MAGIC1 0x4f4f4f4f
 #define FWHT_MAGIC2 0xffffffff
 
@@ -82,7 +81,12 @@
 #define FWHT_FL_COMPONENTS_NUM_MSK	GENMASK(17, 16)
 #define FWHT_FL_COMPONENTS_NUM_OFFSET	16
 
-#define vic_round_dim(dim, div) round_up(dim / div, 8) * div
+/*
+ * A macro to calculate the needed padding in order to make sure
+ * both luma and chroma components resolutions are rounded up to
+ * a multiple of 8
+ */
+#define vic_round_dim(dim, div) (round_up((dim) / (div), 8) * (div))
 
 struct fwht_cframe_hdr {
 	u32 magic1;
@@ -98,7 +102,6 @@ struct fwht_cframe_hdr {
 };
 
 struct fwht_cframe {
-	unsigned int width, height;
 	u16 i_frame_qp;
 	u16 p_frame_qp;
 	__be16 *rlc_data;
@@ -109,13 +112,11 @@ struct fwht_cframe {
 };
 
 struct fwht_raw_frame {
-	unsigned int width, height;
 	unsigned int width_div;
 	unsigned int height_div;
 	unsigned int luma_alpha_step;
 	unsigned int chroma_step;
 	unsigned int components_num;
-	unsigned int stride;
 	u8 *luma, *cb, *cr, *alpha;
 };
 
@@ -129,10 +130,12 @@ struct fwht_raw_frame {
 u32 fwht_encode_frame(struct fwht_raw_frame *frm,
 		      struct fwht_raw_frame *ref_frm,
 		      struct fwht_cframe *cf,
-		      bool is_intra, bool next_is_intra);
+		      bool is_intra, bool next_is_intra,
+		      unsigned int width, unsigned int height,
+		      unsigned int stride, unsigned int chroma_stride);
 void fwht_decode_frame(struct fwht_cframe *cf, struct fwht_raw_frame *ref,
-		       u32 hdr_flags, unsigned int components_num, unsigned int stride);
-
-const char* id_fmt_to_str(u32 id);
+		       u32 hdr_flags, unsigned int components_num,
+		       unsigned int width, unsigned int height,
+		       unsigned int coded_width);
 
 #endif
