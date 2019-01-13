@@ -79,6 +79,11 @@
 
 /* A 4-values flag - the number of components - 1 */
 #define FWHT_FL_COMPONENTS_NUM_MSK	GENMASK(17, 16)
+#define FWHT_FL_PIXFMT_MSK	GENMASK(19, 18)
+#define FWHT_FL_PIXFMT_YUV      0UL
+#define FWHT_FL_PIXFMT_RGB      BIT(18)
+#define FWHT_FL_PIXFMT_HSV      (BIT(18)|BIT(19))
+
 #define FWHT_FL_COMPONENTS_NUM_OFFSET	16
 
 /*
