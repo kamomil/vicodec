@@ -8,6 +8,12 @@
 
 #include "codec-fwht.h"
 
+enum pixfmt {
+	pixfmt_rgb,
+	pixfmt_yuv,
+	pixfmt_hsv
+};
+
 struct v4l2_fwht_pixfmt_info {
 	u32 id;
 	unsigned int bytesperline_mult;
@@ -20,6 +26,7 @@ struct v4l2_fwht_pixfmt_info {
 	unsigned int height_div;
 	unsigned int components_num;
 	unsigned int planes_num;
+	enum pixfmt pixfmt_family;
 };
 
 struct v4l2_fwht_state {
@@ -43,10 +50,14 @@ struct v4l2_fwht_state {
 	u8 *compressed_frame;
 };
 
+int pixfmt_mask_to_family(u32 msk);
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_find_pixfmt(u32 pixelformat);
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_get_pixfmt(u32 idx);
-const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 height_div,
-							  u32 planes_num, unsigned int start_idx);
+const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div,
+							  u32 height_div,
+							  u32 components_num,
+							  int pixfmt_family,
+							  unsigned int start_idx);
 
 int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out);
 int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out);

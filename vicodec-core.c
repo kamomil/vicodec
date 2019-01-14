@@ -289,14 +289,18 @@ static const struct v4l2_fwht_pixfmt_info *info_from_header(struct fwht_cframe_h
 	unsigned int flags = ntohl(p_hdr.flags);
 	unsigned int width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
 	unsigned int height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-	unsigned int components_num = 0;
+	unsigned int components_num = 3;
+	int pixfmt_family = -1;
 	unsigned int version = ntohl(p_hdr.version);
 
 	if (version == FWHT_VERSION) {
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
 				FWHT_FL_COMPONENTS_NUM_OFFSET);
+		pixfmt_family =
+			pixfmt_mask_to_family(flags & FWHT_FL_PIXFMT_MSK);
 	}
-	return v4l2_fwht_default_fmt(width_div, height_div, components_num, 0);
+	return v4l2_fwht_default_fmt(width_div, height_div,
+			             components_num, pixfmt_family, 0);
 }
 
 static bool is_header_valid(struct fwht_cframe_hdr p_hdr)
@@ -304,13 +308,30 @@ static bool is_header_valid(struct fwht_cframe_hdr p_hdr)
 	const struct v4l2_fwht_pixfmt_info *info;
 	unsigned int w = ntohl(p_hdr.width);
 	unsigned int h = ntohl(p_hdr.height);
+	unsigned int version = ntohl(p_hdr.version);
+	unsigned int flags = ntohl(p_hdr.flags);
 
-	if (p_hdr.magic1 != FWHT_MAGIC1 || p_hdr.magic2 != FWHT_MAGIC2 ||
-			!p_hdr.version || ntohl(p_hdr.version) > FWHT_VERSION) {
+	if (p_hdr.magic1 != FWHT_MAGIC1 || p_hdr.magic2 != FWHT_MAGIC2)
 		return false;
-	}
+
+	if (!version || version > FWHT_VERSION)
+		return false;
+
 	if (w < MIN_WIDTH || w > MAX_WIDTH || h < MIN_HEIGHT || h > MAX_HEIGHT)
 		return false;
+
+	if (version == FWHT_VERSION) {
+		unsigned int components_num = 1 +
+			((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
+			FWHT_FL_COMPONENTS_NUM_OFFSET);
+		int pixfmt_family =
+			pixfmt_mask_to_family(flags & FWHT_FL_PIXFMT_MSK);
+
+		pr_info("%s: msk 0x%lx flags 0x%x mas = 0x%lx\n", __func__, FWHT_FL_PIXFMT_MSK, flags, flags & FWHT_FL_PIXFMT_MSK);
+		if (components_num == 0 || components_num > 4 ||
+				pixfmt_family == -1)
+			return false;
+	}
 
 	info = info_from_header(p_hdr);
 	if (!info)
@@ -402,8 +423,8 @@ enum vb2_buffer_state get_next_header(struct vicodec_ctx *ctx, u8 *p_src,
 		memcpy(header + ctx->comp_size, p, copy);
 		p += copy;
 		ctx->comp_size += copy;
-		*pp = p;
 	}
+	*pp = p;
 	return state;
 }
 
@@ -482,7 +503,6 @@ restart:
 
 		if (copy > p_src + sz - p)
 			copy = p_src + sz - p;
-
 		pr_info("dafna: %s copying AGAIN AGAIN %u to compressed_frame\n", __func__,copy);
 
 		memcpy(ctx->state.compressed_frame + ctx->comp_size,
@@ -520,7 +540,6 @@ restart:
 	    !q_dst->info ||
 	    hdr_width_div != q_dst->info->width_div ||
 	    hdr_height_div != q_dst->info->height_div) {
-		pr_info("%s: SOURCE_CHANGE detected\n", __func__);
 		static const struct v4l2_event rs_event = {
 			.type = V4L2_EVENT_SOURCE_CHANGE,
 			.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
@@ -529,6 +548,7 @@ restart:
 		struct vb2_v4l2_buffer *dst_buf =
 			v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 
+		pr_info("%s: SOURCE_CHANGE detected\n", __func__);
 		update_capture_data_from_header(ctx, *p_hdr);
 		ctx->first_source_change_sent = true;
 		v4l2_event_queue_fh(&ctx->fh, &rs_event);
@@ -567,7 +587,7 @@ static int enum_fmt(struct v4l2_fmtdesc *f, struct vicodec_ctx *ctx, bool is_out
 {
 	bool is_uncomp = (ctx->is_enc && is_out) || (!ctx->is_enc && !is_out);
 
-	pr_info("dafna: enum_fmt\n");
+	pr_info("enum_fmt '%s' is_out = %d\n", V4L2_TYPE_IS_OUTPUT(f->type) ? "OUT" : "CAP", is_out);
 	if (V4L2_TYPE_IS_MULTIPLANAR(f->type) && !multiplanar)
 		return -EINVAL;
 	if (!V4L2_TYPE_IS_MULTIPLANAR(f->type) && multiplanar)
@@ -578,8 +598,11 @@ static int enum_fmt(struct v4l2_fmtdesc *f, struct vicodec_ctx *ctx, bool is_out
 		if (!info || ctx->is_enc)
 			info = v4l2_fwht_get_pixfmt(f->index);
 		else
-			info = v4l2_fwht_default_fmt(info->width_div, info->height_div,
-						     info->components_num, f->index);
+			info = v4l2_fwht_default_fmt(info->width_div,
+						     info->height_div,
+						     info->components_num,
+						     info->pixfmt_family,
+						     f->index);
 		if (!info)
 			return -EINVAL;
 		f->pixelformat = info->id;
@@ -625,17 +648,18 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 	if (!info)
 		info = v4l2_fwht_get_pixfmt(0);
 	pr_info("dafna: vidioc_g_fmt for type '%s'\n", V4L2_TYPE_IS_OUTPUT(f->type) ? "OUT" : "CAP");
+
 	switch (f->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
 		if (multiplanar)
 			return -EINVAL;
 		pix = &f->fmt.pix;
-		pix->pixelformat = info->id;
-		pix->bytesperline = q_data->coded_width * info->bytesperline_mult;
 		pix->width = q_data->coded_width;
 		pix->height = q_data->coded_height;
 		pix->field = V4L2_FIELD_NONE;
+		pix->pixelformat = info->id;
+		pix->bytesperline = q_data->coded_width * info->bytesperline_mult;
 		pr_info("dafna: %s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
 				pix->bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix->sizeimage = q_data->sizeimage;
@@ -651,13 +675,13 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		if (!multiplanar)
 			return -EINVAL;
 		pix_mp = &f->fmt.pix_mp;
-		pix_mp->pixelformat = info->id;
-		pix_mp->plane_fmt[0].bytesperline =
-			q_data->coded_width * info->bytesperline_mult;
 		pix_mp->width = q_data->coded_width;
 		pix_mp->height = q_data->coded_height;
 		pix_mp->field = V4L2_FIELD_NONE;
+		pix_mp->pixelformat = info->id;
 		pix_mp->num_planes = 1;
+		pix_mp->plane_fmt[0].bytesperline =
+				q_data->coded_width * info->bytesperline_mult;
 		pr_info("%s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
 				pix_mp->plane_fmt[0].bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix_mp->plane_fmt[0].sizeimage = q_data->sizeimage;
@@ -704,11 +728,11 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 			info = find_fmt(pix->pixelformat);
 		pix->width = vic_round_dim(clamp(pix->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
 		pix->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+		pix->field = V4L2_FIELD_NONE;
 		pix->bytesperline =
 			pix->width * info->bytesperline_mult;
 		pix->sizeimage = pix->width * pix->height *
 			info->sizeimage_mult / info->sizeimage_div;
-		pix->field = V4L2_FIELD_NONE;
 		pr_info("%s: dafna format from user is '%s'\n",__func__,id_fmt_to_str(pix->pixelformat));
 		pr_info("%s: %ux%u d = %ux%u",__func__, pix->height,pix->width,info->height_div,info->width_div);
 		pr_info("%s: set bytesperline(%u) = width(%u) * bytesperline_mult (%u)\n",__func__,
@@ -723,14 +747,14 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		plane = pix_mp->plane_fmt;
 		if (pix_mp->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix_mp->pixelformat);
+		pix_mp->num_planes = 1;
 		pix_mp->width = vic_round_dim(clamp(pix_mp->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
 		pix_mp->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+		pix_mp->field = V4L2_FIELD_NONE;
 		plane->bytesperline =
 			pix_mp->width * info->bytesperline_mult;
 		plane->sizeimage = pix_mp->width * pix_mp->height *
 			info->sizeimage_mult / info->sizeimage_div;
-		pix_mp->num_planes = 1;
-		pix_mp->field = V4L2_FIELD_NONE;
 		if (pix_mp->pixelformat == V4L2_PIX_FMT_FWHT)
 			plane->sizeimage += sizeof(struct fwht_cframe_hdr);
 		memset(pix_mp->reserved, 0, sizeof(pix_mp->reserved));
@@ -1024,6 +1048,7 @@ static void vicodec_mark_last_buf(struct vicodec_ctx *ctx)
 	static const struct v4l2_event eos_event = {
 		.type = V4L2_EVENT_EOS
 	};
+
 	spin_lock(ctx->lock);
 	ctx->last_src_buf = v4l2_m2m_last_src_buf(ctx->fh.m2m_ctx);
 	pr_info("%s: dafna: called last src buf is %p\n", __func__, ctx->last_src_buf);
@@ -1267,15 +1292,29 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 		};
 
 		do {
+			pr_info("%s: p_src = %px, p = %px\n", __func__, p_src, p);
 			enum vb2_buffer_state state = get_next_header(ctx, p_src, sz,
 								  (u8*)&ctx->first_header, &p);
 
 			if (ctx->comp_size < sizeof(struct fwht_cframe_hdr)) {
+				pr_info("return 1\n");
 				v4l2_m2m_buf_done(vbuf, state);
-				job_remove_src_buf(ctx, state);
 				return;
 			}
 			header_valid = is_header_valid(ctx->first_header);
+			/*
+			 * p points right after the end of the header in the buffer.
+			 * If the header is invalid we set p to point to the next byte
+			 * after the start of the header
+			 */
+			if (!header_valid) {
+				pr_info("%s: invalid p_src = %px, p = %px %lu\n", __func__, p_src, p, sizeof(struct fwht_cframe_hdr));
+				p = p - sizeof(struct fwht_cframe_hdr) + 1;
+				ctx->comp_size = 0;
+				ctx->comp_magic_cnt = 0;
+				pr_info("%s: invalid p_src = %px, p = %px\n", __func__, p_src, p);
+			}
+
 		} while (!header_valid);
 		if (p < p_src + sz)
 			ctx->cur_buf_offset = p - p_src;
@@ -1317,10 +1356,8 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 		V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP", ctx->is_enc ? "enc" : "dec");
 	pr_info("dafna: %s coded wxh %ux%u \n", __func__, q_data->coded_width, q_data->coded_height);
 
-	if (!info) {
-		pr_info("%s: info not set yet\n", __func__);
+	if (!info)
 		return -EINVAL;
-	}
 	q_data->sequence = 0;
 
 
@@ -1416,9 +1453,6 @@ static void vicodec_stop_streaming(struct vb2_queue *q)
 		ctx->comp_frame_size = 0;
 		ctx->comp_has_frame = 0;
 		ctx->comp_has_next_frame = 0;
-		//TODO - should first_even also initialize ?
-		//bool			first_source_change_sent;
-
 	}
 }
 
@@ -1581,8 +1615,8 @@ static int vicodec_open(struct file *file)
 			ctx->q_data[V4L2_M2M_DST].info->sizeimage_mult /
 			ctx->q_data[V4L2_M2M_DST].info->sizeimage_div +
 			sizeof(struct fwht_cframe_hdr);
-	} else { /* make sure info is not null to avoid segfaults */
-		ctx->q_data[V4L2_M2M_DST].info = v4l2_fwht_get_pixfmt(0);
+	} else {
+		ctx->q_data[V4L2_M2M_DST].info = NULL;
 	}
 
 	ctx->state.colorspace = V4L2_COLORSPACE_REC709;
