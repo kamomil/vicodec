@@ -11,72 +11,51 @@
 #include "codec-v4l2-fwht.h"
 
 static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
-	{ V4L2_PIX_FMT_YUV420,  1, 3, 2, 1, 1, 2, 2, 3, 3, pixfmt_yuv},
-	{ V4L2_PIX_FMT_YVU420,  1, 3, 2, 1, 1, 2, 2, 3, 3, pixfmt_yuv},
-	{ V4L2_PIX_FMT_YUV422P, 1, 2, 1, 1, 1, 2, 1, 3, 3, pixfmt_yuv},
-	{ V4L2_PIX_FMT_NV12,    1, 3, 2, 1, 2, 2, 2, 3, 2, pixfmt_yuv},
-	{ V4L2_PIX_FMT_NV21,    1, 3, 2, 1, 2, 2, 2, 3, 2, pixfmt_yuv},
-	{ V4L2_PIX_FMT_NV16,    1, 2, 1, 1, 2, 2, 1, 3, 2, pixfmt_yuv},
-	{ V4L2_PIX_FMT_NV61,    1, 2, 1, 1, 2, 2, 1, 3, 2, pixfmt_yuv},
-	{ V4L2_PIX_FMT_NV24,    1, 3, 1, 1, 2, 1, 1, 3, 2, pixfmt_yuv},
-	{ V4L2_PIX_FMT_NV42,    1, 3, 1, 1, 2, 1, 1, 3, 2, pixfmt_yuv},
-	{ V4L2_PIX_FMT_YUYV,    2, 2, 1, 2, 4, 2, 1, 3, 1, pixfmt_yuv},
-	{ V4L2_PIX_FMT_YVYU,    2, 2, 1, 2, 4, 2, 1, 3, 1, pixfmt_yuv},
-	{ V4L2_PIX_FMT_UYVY,    2, 2, 1, 2, 4, 2, 1, 3, 1, pixfmt_yuv},
-	{ V4L2_PIX_FMT_VYUY,    2, 2, 1, 2, 4, 2, 1, 3, 1, pixfmt_yuv},
-	{ V4L2_PIX_FMT_BGR24,   3, 3, 1, 3, 3, 1, 1, 3, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_RGB24,   3, 3, 1, 3, 3, 1, 1, 3, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_HSV24,   3, 3, 1, 3, 3, 1, 1, 3, 1, pixfmt_hsv},
-	{ V4L2_PIX_FMT_BGR32,   4, 4, 1, 4, 4, 1, 1, 3, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_XBGR32,  4, 4, 1, 4, 4, 1, 1, 3, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_RGB32,   4, 4, 1, 4, 4, 1, 1, 3, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_XRGB32,  4, 4, 1, 4, 4, 1, 1, 3, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_HSV32,   4, 4, 1, 4, 4, 1, 1, 3, 1, pixfmt_hsv},
-	{ V4L2_PIX_FMT_ARGB32,  4, 4, 1, 4, 4, 1, 1, 4, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_ABGR32,  4, 4, 1, 4, 4, 1, 1, 4, 1, pixfmt_rgb},
-	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1, 1, pixfmt_rgb}
+	{ V4L2_PIX_FMT_YUV420,  1, 3, 2, 1, 1, 2, 2, 3, 3, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_YVU420,  1, 3, 2, 1, 1, 2, 2, 3, 3, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_YUV422P, 1, 2, 1, 1, 1, 2, 1, 3, 3, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_NV12,    1, 3, 2, 1, 2, 2, 2, 3, 2, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_NV21,    1, 3, 2, 1, 2, 2, 2, 3, 2, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_NV16,    1, 2, 1, 1, 2, 2, 1, 3, 2, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_NV61,    1, 2, 1, 1, 2, 2, 1, 3, 2, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_NV24,    1, 3, 1, 1, 2, 1, 1, 3, 2, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_NV42,    1, 3, 1, 1, 2, 1, 1, 3, 2, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_YUYV,    2, 2, 1, 2, 4, 2, 1, 3, 1, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_YVYU,    2, 2, 1, 2, 4, 2, 1, 3, 1, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_UYVY,    2, 2, 1, 2, 4, 2, 1, 3, 1, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_VYUY,    2, 2, 1, 2, 4, 2, 1, 3, 1, FWHT_FL_PIXENC_YUV},
+	{ V4L2_PIX_FMT_BGR24,   3, 3, 1, 3, 3, 1, 1, 3, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_RGB24,   3, 3, 1, 3, 3, 1, 1, 3, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_HSV24,   3, 3, 1, 3, 3, 1, 1, 3, 1, FWHT_FL_PIXENC_HSV},
+	{ V4L2_PIX_FMT_BGR32,   4, 4, 1, 4, 4, 1, 1, 3, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_XBGR32,  4, 4, 1, 4, 4, 1, 1, 3, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_RGB32,   4, 4, 1, 4, 4, 1, 1, 3, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_XRGB32,  4, 4, 1, 4, 4, 1, 1, 3, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_HSV32,   4, 4, 1, 4, 4, 1, 1, 3, 1, FWHT_FL_PIXENC_HSV},
+	{ V4L2_PIX_FMT_ARGB32,  4, 4, 1, 4, 4, 1, 1, 4, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_ABGR32,  4, 4, 1, 4, 4, 1, 1, 4, 1, FWHT_FL_PIXENC_RGB},
+	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1, 1, FWHT_FL_PIXENC_RGB},
 };
 
-int pixfmt_mask_to_family(u32 msk) {
-	pr_info("%s: 0x%x\n", __func__, msk);
-	if(msk == FWHT_FL_PIXFMT_YUV)
-		return pixfmt_yuv;
-	if(msk == FWHT_FL_PIXFMT_RGB)
-		return pixfmt_rgb;
-	if(msk == FWHT_FL_PIXFMT_HSV)
-		return pixfmt_hsv;
-	return -1;
-}
-
-u32 pixfmt_family_to_mask(enum pixfmt p) {
-	if (p == pixfmt_yuv)
-		return FWHT_FL_PIXFMT_YUV;
-	if (p == pixfmt_rgb)
-		return FWHT_FL_PIXFMT_RGB;
-	if (p == pixfmt_hsv)
-		return FWHT_FL_PIXFMT_HSV;
-	return -1;
-}
-
-
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 height_div,
+							  u32 version,
 							  u32 components_num,
-							  int pixfmt_family,
+							  u32 pixenc,
 							  unsigned int start_idx)
 {
 	unsigned int i;
 
-	pr_info("%s: div %ux%u comp_num %u fami %u start_idx %u\n", __func__, width_div, height_div, components_num, pixfmt_family, start_idx);
+	pr_info("%s: div %ux%u comp_num %u pixenc 0x%x start_idx %u\n", __func__, width_div,
+			height_div, components_num, pixenc, start_idx);
+
 	for (i = 0; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++)
 		if (v4l2_fwht_pixfmts[i].width_div == width_div &&
 		    v4l2_fwht_pixfmts[i].height_div == height_div &&
-		    (pixfmt_family == -1 || v4l2_fwht_pixfmts[i].pixfmt_family == pixfmt_family) &&
-		    (!components_num || v4l2_fwht_pixfmts[i].components_num == components_num)) {
-			if (start_idx == 0) {
-				pr_info("%s: return i = %d\n", __func__, i);
+		    (version == 1 || v4l2_fwht_pixfmts[i].pixenc == pixenc) &&
+		    (version == 1 || v4l2_fwht_pixfmts[i].components_num == components_num)) {
+			if (start_idx == 0)
 				return v4l2_fwht_pixfmts + i;
-			} else
-				start_idx--;
+			start_idx--;
 		}
 	pr_info("%s: no info found\n", __func__);
 	return NULL;
@@ -266,7 +245,7 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	p_hdr->width = htonl(state->visible_width);
 	p_hdr->height = htonl(state->visible_height);
 	flags |= (info->components_num - 1) << FWHT_FL_COMPONENTS_NUM_OFFSET;
-	flags |= pixfmt_family_to_mask(info->pixfmt_family);
+	flags |= info->pixenc;
 	if (encoding & FWHT_LUMA_UNENCODED)
 		flags |= FWHT_FL_LUMA_IS_UNCOMPRESSED;
 	if (encoding & FWHT_CB_UNENCODED)
@@ -305,7 +284,8 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	unsigned int version;
 	const struct v4l2_fwht_pixfmt_info *info;
 	unsigned int hdr_width_div, hdr_height_div;
-	int pixfmt_family = -1;
+	unsigned int pixenc = -1;
+
 	pr_info("dafna: %s\n",__func__);
 	if (!state->info)
 		return -EINVAL;
@@ -342,11 +322,11 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	if (version == FWHT_VERSION) {
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
 			FWHT_FL_COMPONENTS_NUM_OFFSET);
-		pixfmt_family = pixfmt_mask_to_family(flags & FWHT_FL_PIXFMT_MSK);
+		pixenc = flags & FWHT_FL_PIXENC_MSK;
 		if (components_num != info->components_num ||
-		    pixfmt_family != info->pixfmt_family) {
-			pr_info("%s: comp/fmt no match: %ux%u\n", __func__, pixfmt_family, components_num);
-	//		return -EINVAL;
+		    pixenc != info->pixenc) {
+			pr_info("%s: comp/fmt no match: %ux%u\n", __func__, pixenc, components_num);
+			return -EINVAL;
 		}
 	}
 
