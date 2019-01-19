@@ -12,7 +12,7 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include "codec-fwht.h"
-
+#include <asm-generic/bug.h>
 /*
  * Note: bit 0 of the header must always be 0. Otherwise it cannot
  * be guaranteed that the magic 8 byte sequence (see below) can
@@ -697,7 +697,6 @@ static u32 encode_plane(u8 *input, u8 *refp, __be16 **rlco, __be16 *rlco_max,
 
 	width = round_up(width, 8);
 	height = round_up(height, 8);
-	pr_info("dafna: %s: start w=%u h=%u\n",__func__,width,height);
 
 	for (j = 0; j < height / 8; j++) {
 		input = input_start + j * 8 * stride;
@@ -758,7 +757,6 @@ exit_loop:
 		u8 *out = (u8 *)rlco_start;
 		u8 *p;
 
-		pr_info("dafna: %s: plane unencoded\n",__func__);
 		input = input_start;
 		/*
 		 * The compressed stream should never contain the magic
@@ -774,7 +772,6 @@ exit_loop:
 		*rlco = (__be16 *)out;
 		encoding &= ~FWHT_FRAME_PCODED;
 	}
-	pr_info("dafna: %s: end\n",__func__);
 	return encoding;
 }
 
@@ -843,6 +840,7 @@ static void decode_plane(struct fwht_cframe *cf, const __be16 **rlco, u8 *ref,
 	s16 copy[8 * 8];
 	s16 stat;
 	unsigned int i, j;
+	u8* strt = (u8 *)*rlco;
 
 	width = round_up(width, 8);
 	height = round_up(height, 8);
@@ -873,6 +871,11 @@ static void decode_plane(struct fwht_cframe *cf, const __be16 **rlco, u8 *ref,
 			}
 
 			stat = derlc(rlco, cf->coeffs);
+			if(((u8 *)*rlco) - strt > cf->size) {
+				pr_info("%s: i=%u, j=%u %ux%u WARNING! got passed cf->size: %lu > %u\n", __func__, i, j, width, height, (u8 *)*rlco - strt, cf->size);
+				print_hex_dump(KERN_INFO,"basa", DUMP_PREFIX_OFFSET, 32, 1, strt, cf->size/100, false);
+				BUG_ON(1);
+			}
 
 			if (stat & PFRAME_BIT)
 				dequantize_inter(cf->coeffs);

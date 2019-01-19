@@ -45,13 +45,10 @@ struct v4l2_fwht_state {
 	u8 *compressed_frame;
 };
 
-int pixfmt_mask_to_family(u32 msk);
-int pixfmt_family_to_mask(u32 msk);
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_find_pixfmt(u32 pixelformat);
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_get_pixfmt(u32 idx);
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div,
 							  u32 height_div,
-							  u32 version,
 							  u32 components_num,
 							  u32 pixenc,
 							  unsigned int start_idx);

@@ -79,13 +79,14 @@
 #define FWHT_FL_ALPHA_IS_UNCOMPRESSED	BIT(9)
 
 /* A 4-values flag - the number of components - 1 */
-#define FWHT_FL_COMPONENTS_NUM_MSK	GENMASK(17, 16)
-#define FWHT_FL_PIXENC_MSK	GENMASK(19, 18)
-#define FWHT_FL_PIXENC_YUV	0UL
-#define FWHT_FL_PIXENC_RGB	BIT(18)
-#define FWHT_FL_PIXENC_HSV	(BIT(18) | BIT(19))
-
+#define FWHT_FL_COMPONENTS_NUM_MSK	GENMASK(18, 16)
 #define FWHT_FL_COMPONENTS_NUM_OFFSET	16
+
+#define FWHT_FL_PIXENC_MSK	GENMASK(20, 19)
+#define FWHT_FL_PIXENC_OFFSET	19
+#define FWHT_FL_PIXENC_YUV	(1 << FWHT_FL_PIXENC_OFFSET)
+#define FWHT_FL_PIXENC_RGB	(2 << FWHT_FL_PIXENC_OFFSET)
+#define FWHT_FL_PIXENC_HSV	(3 << FWHT_FL_PIXENC_OFFSET)
 
 /*
  * A macro to calculate the needed padding in order to make sure

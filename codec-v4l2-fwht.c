@@ -38,7 +38,6 @@ static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
 };
 
 const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 height_div,
-							  u32 version,
 							  u32 components_num,
 							  u32 pixenc,
 							  unsigned int start_idx)
@@ -48,16 +47,17 @@ const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 hei
 	pr_info("%s: div %ux%u comp_num %u pixenc 0x%x start_idx %u\n", __func__, width_div,
 			height_div, components_num, pixenc, start_idx);
 
-	for (i = 0; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++)
+	for (i = 0; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++) {
 		if (v4l2_fwht_pixfmts[i].width_div == width_div &&
 		    v4l2_fwht_pixfmts[i].height_div == height_div &&
-		    (version == 1 || v4l2_fwht_pixfmts[i].pixenc == pixenc) &&
-		    (version == 1 || v4l2_fwht_pixfmts[i].components_num == components_num)) {
+		    (!pixenc || v4l2_fwht_pixfmts[i].pixenc == pixenc) &&
+		    v4l2_fwht_pixfmts[i].components_num == components_num) {
 			if (start_idx == 0)
 				return v4l2_fwht_pixfmts + i;
 			start_idx--;
 		}
 	pr_info("%s: no info found\n", __func__);
+	}
 	return NULL;
 }
 
@@ -283,7 +283,6 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	unsigned int version;
 	const struct v4l2_fwht_pixfmt_info *info;
 	unsigned int hdr_width_div, hdr_height_div;
-	unsigned int pixenc = -1;
 
 	pr_info("dafna: %s\n",__func__);
 	if (!state->info)
@@ -318,21 +317,21 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	flags = ntohl(state->header.flags);
 
 	if (version == FWHT_VERSION) {
-		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
-			FWHT_FL_COMPONENTS_NUM_OFFSET);
-		pixenc = flags & FWHT_FL_PIXENC_MSK;
-		if (components_num != info->components_num ||
-		    pixenc != info->pixenc) {
-			pr_info("%s: comp/fmt no match: %ux%u\n", __func__, pixenc, components_num);
+		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc)
 			return -EINVAL;
-		}
+		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
+				FWHT_FL_COMPONENTS_NUM_OFFSET);
 	}
+
+	if (components_num != info->components_num)
+		return -EINVAL;
 
 	state->colorspace = ntohl(state->header.colorspace);
 	state->xfer_func = ntohl(state->header.xfer_func);
 	state->ycbcr_enc = ntohl(state->header.ycbcr_enc);
 	state->quantization = ntohl(state->header.quantization);
 	cf.rlc_data = (__be16 *)p_in;
+	cf.size = ntohl(state->header.size);
 
 	hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
 	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
