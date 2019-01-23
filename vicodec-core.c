@@ -126,7 +126,6 @@ struct vicodec_ctx {
 	u32			comp_size;
 	u32			header_size;
 	u32			comp_magic_cnt;
-	u32			comp_frame_size;
 	bool			comp_has_frame;
 	bool			comp_has_next_frame;
 	bool			first_source_change_sent;
@@ -189,6 +188,10 @@ static int device_process(struct vicodec_ctx *ctx,
 			return ret;
 		vb2_set_plane_payload(&dst_vb->vb2_buf, 0, ret);
 	} else {
+		unsigned int comp_frame_size = ntohl(ctx->state.header.size);
+
+		if (comp_frame_size > ctx->comp_max_size)
+			return -EINVAL;
 		state->info = q_dst->info;
 		pr_info("dafna: %s: aboout to call v4l2_fwht_decode\n", __func__);
 		ret = v4l2_fwht_decode(state, p_src, p_dst);
@@ -443,8 +446,8 @@ static int job_ready(void *priv)
 	unsigned int hdr_width_div;
 	unsigned int hdr_height_div;
 	unsigned int max_to_copy;
+	unsigned int comp_frame_size;
 
-	pr_info("dafna: %s\n", __func__);
 	if (ctx->source_changed)
 		return 0;
 	if (ctx->is_enc || ctx->comp_has_frame)
@@ -467,10 +470,10 @@ restart:
 			job_remove_src_buf(ctx, state);
 			goto restart;
 		}
-
-		ctx->comp_frame_size = ntohl(ctx->state.header.size);
 	}
-	pr_info("dafna: %s size in header is %u\n", __func__,ctx->comp_frame_size);
+
+	comp_frame_size = ntohl(ctx->state.header.size);
+	pr_info("dafna: %s size in header is %u\n", __func__, comp_frame_size);
 
 	/*
 	 * The current scanned frame might be the first frame of a new
@@ -479,7 +482,7 @@ restart:
 	 * the copy will continue after allocating new large enough buffer
 	 * when restreaming
 	 */
-	max_to_copy = min(ctx->comp_frame_size, ctx->comp_max_size);
+	max_to_copy = min(comp_frame_size, ctx->comp_max_size);
 
 	if (ctx->comp_size < max_to_copy) {
 		u32 copy = max_to_copy - ctx->comp_size;
@@ -498,10 +501,11 @@ restart:
 		}
 	}
 	ctx->cur_buf_offset = p - p_src;
-	if (ctx->comp_size == ctx->comp_frame_size)
+	if (ctx->comp_size == comp_frame_size)
 		ctx->comp_has_frame = true;
 	ctx->comp_has_next_frame = false;
-	if (ctx->comp_has_frame && sz - ctx->cur_buf_offset >= sizeof(struct fwht_cframe_hdr)) {
+	if (ctx->comp_has_frame && sz - ctx->cur_buf_offset >=
+			sizeof(struct fwht_cframe_hdr)) {
 		struct fwht_cframe_hdr *p_hdr = (struct fwht_cframe_hdr *)p;
 		u32 frame_size = ntohl(p_hdr->size);
 		u32 remaining = sz - ctx->cur_buf_offset - sizeof(*p_hdr);
@@ -568,7 +572,8 @@ static int vidioc_querycap(struct file *file, void *priv,
 	return 0;
 }
 
-static int enum_fmt(struct v4l2_fmtdesc *f, struct vicodec_ctx *ctx, bool is_out)
+static int enum_fmt(struct v4l2_fmtdesc *f, struct vicodec_ctx *ctx,
+		    bool is_out)
 {
 	bool is_uncomp = (ctx->is_enc && is_out) || (!ctx->is_enc && !is_out);
 
@@ -579,7 +584,8 @@ static int enum_fmt(struct v4l2_fmtdesc *f, struct vicodec_ctx *ctx, bool is_out
 		return -EINVAL;
 
 	if (is_uncomp) {
-		const struct v4l2_fwht_pixfmt_info *info = get_q_data(ctx, f->type)->info;
+		const struct v4l2_fwht_pixfmt_info *info =
+					get_q_data(ctx, f->type)->info;
 
 		if (!info || ctx->is_enc)
 			info = v4l2_fwht_get_pixfmt(f->index);
@@ -645,7 +651,8 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		pix->height = q_data->coded_height;
 		pix->field = V4L2_FIELD_NONE;
 		pix->pixelformat = info->id;
-		pix->bytesperline = q_data->coded_width * info->bytesperline_mult;
+		pix->bytesperline = q_data->coded_width *
+					info->bytesperline_mult;
 		pr_info("dafna: %s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
 				pix->bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix->sizeimage = q_data->sizeimage;
@@ -712,8 +719,13 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		pr_info("%s: before %ux%u ",__func__, pix->height,pix->width);
 		if (pix->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix->pixelformat);
-		pix->width = vic_round_dim(clamp(pix->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
-		pix->height = vic_round_dim(clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+
+		pix->width = clamp(pix->width, MIN_WIDTH, MAX_WIDTH);
+		pix->width = vic_round_dim(pix->width, info->width_div);
+
+		pix->height = clamp(pix->height, MIN_HEIGHT, MAX_HEIGHT);
+		pix->height = vic_round_dim(pix->height, info->height_div);
+
 		pix->field = V4L2_FIELD_NONE;
 		pix->bytesperline =
 			pix->width * info->bytesperline_mult;
@@ -734,8 +746,14 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		if (pix_mp->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix_mp->pixelformat);
 		pix_mp->num_planes = 1;
-		pix_mp->width = vic_round_dim(clamp(pix_mp->width, MIN_WIDTH, MAX_WIDTH), info->width_div);
-		pix_mp->height = vic_round_dim(clamp(pix_mp->height, MIN_HEIGHT, MAX_HEIGHT), info->height_div);
+
+		pix_mp->width = clamp(pix_mp->width, MIN_WIDTH, MAX_WIDTH);
+		pix_mp->width = vic_round_dim(pix_mp->width, info->width_div);
+
+		pix_mp->height = clamp(pix_mp->height, MIN_HEIGHT, MAX_HEIGHT);
+		pix_mp->height = vic_round_dim(pix_mp->height,
+					       info->height_div);
+
 		pix_mp->field = V4L2_FIELD_NONE;
 		plane->bytesperline =
 			pix_mp->width * info->bytesperline_mult;
@@ -1019,14 +1037,17 @@ static int vidioc_s_selection(struct file *file, void *priv,
 	if (!q_data)
 		return -EINVAL;
 
-	if (!ctx->is_enc || s->type != out_type || s->target != V4L2_SEL_TGT_CROP)
+	if (!ctx->is_enc || s->type != out_type ||
+	    s->target != V4L2_SEL_TGT_CROP)
 		return -EINVAL;
 
 	s->r.left = 0;
 	s->r.top = 0;
-	q_data->visible_width = clamp(s->r.width, MIN_WIDTH, q_data->coded_width);
+	q_data->visible_width = clamp(s->r.width, MIN_WIDTH,
+				      q_data->coded_width);
 	s->r.width = q_data->visible_width;
-	q_data->visible_height = clamp(s->r.height, MIN_HEIGHT, q_data->coded_height);
+	q_data->visible_height = clamp(s->r.height, MIN_HEIGHT,
+				       q_data->coded_height);
 	s->r.height = q_data->visible_height;
 	return 0;
 }
@@ -1283,11 +1304,13 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 		return;
 	}
 
+	pr_info("%s start looking for first header\n", __func__);
 	do {
 		enum vb2_buffer_state state =
 			get_next_header(ctx, &p, p_src + sz - p);
 
 		if (ctx->header_size < sizeof(struct fwht_cframe_hdr)) {
+			pr_info("%s header_size < sizof(hdr)\n", __func__);
 			v4l2_m2m_buf_done(vbuf, state);
 			return;
 		}
@@ -1299,6 +1322,7 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 		 */
 		if (!header_valid) {
 			p = p - sizeof(struct fwht_cframe_hdr) + 1;
+			pr_info("%s heade invalid\n", __func__);
 			if (p < p_src)
 				p = p_src;
 			ctx->header_size = 0;
@@ -1306,9 +1330,8 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 		}
 
 	} while (!header_valid);
-	if (p < p_src + sz)
-		ctx->cur_buf_offset = p - p_src;
 
+	ctx->cur_buf_offset = p - p_src;
 	update_capture_data_from_header(ctx);
 	ctx->first_source_change_sent = true;
 	v4l2_event_queue_fh(&ctx->fh, &rs_event);
@@ -1378,7 +1401,8 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	state->visible_height = q_data->visible_height;
 	state->coded_width = q_data->coded_width;
 	state->coded_height = q_data->coded_height;
-	state->stride = q_data->coded_width * info->bytesperline_mult;
+	state->stride = q_data->coded_width *
+				info->bytesperline_mult;
 	pr_info("dafna: state visible = %ux%u, coded = %ux%u\n", state->visible_width, state->visible_height, state->coded_width, state->coded_height);
 
 	state->ref_frame.luma = kvmalloc(total_planes_size, GFP_KERNEL);
@@ -1396,10 +1420,9 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	 * it contain data of the first frame of the new resolution
 	 */
 	if (state->compressed_frame) {
-		if (ctx->comp_size > ctx->comp_max_size) {
+		if (ctx->comp_size > ctx->comp_max_size)
 			ctx->comp_size = ctx->comp_max_size;
-			ctx->comp_frame_size = ctx->comp_max_size;
-		}
+
 		memcpy(new_comp_frame,
 		       state->compressed_frame, ctx->comp_size);
 	}
@@ -1442,7 +1465,6 @@ static void vicodec_stop_streaming(struct vb2_queue *q)
 		ctx->comp_size = 0;
 		ctx->header_size = 0;
 		ctx->comp_magic_cnt = 0;
-		ctx->comp_frame_size = 0;
 		ctx->comp_has_frame = 0;
 		ctx->comp_has_next_frame = 0;
 	}

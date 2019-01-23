@@ -37,7 +37,8 @@ static const struct v4l2_fwht_pixfmt_info v4l2_fwht_pixfmts[] = {
 	{ V4L2_PIX_FMT_GREY,    1, 1, 1, 1, 0, 1, 1, 1, 1, FWHT_FL_PIXENC_RGB},
 };
 
-const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div, u32 height_div,
+const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div,
+							  u32 height_div,
 							  u32 components_num,
 							  u32 pixenc,
 							  unsigned int start_idx)
@@ -231,7 +232,8 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	encoding = fwht_encode_frame(&rf, &state->ref_frame, &cf,
 				     !state->gop_cnt,
 				     state->gop_cnt == state->gop_size - 1,
-				     state->visible_width, state->visible_height,
+				     state->visible_width,
+				     state->visible_height,
 				     state->stride, chroma_stride);
 	if (!(encoding & FWHT_FRAME_PCODED))
 		state->gop_cnt = 0;
@@ -335,13 +337,16 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 
 	hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
 	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-	if (hdr_width_div != info->width_div || hdr_height_div != info->height_div) {
+	if (hdr_width_div != info->width_div ||
+	    hdr_height_div != info->height_div) {
 		pr_info("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
 		return -EINVAL;
 	}
 
-	fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
-			  state->visible_width, state->visible_height, state->coded_width);
+	if (!fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
+			       state->visible_width, state->visible_height,
+			       state->coded_width))
+		return -EINVAL;
 
 	/*
 	 * TODO - handle the case where the compressed stream encodes a
