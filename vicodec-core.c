@@ -64,6 +64,56 @@ static const struct v4l2_fwht_pixfmt_info pixfmt_fwht = {
 	V4L2_PIX_FMT_FWHT, 0, 3, 1, 1, 1, 1, 1, 0, 1
 };
 
+#define VICODEC_STATELESS_FWHT (V4L2_CID_USER_BASE | 0x1000)
+
+static const struct v4l2_fwht_pixfmt_info pixfmt_stateless_fwht = {
+	V4L2_PIX_FMT_FWHT_STATELESS, 0, 3, 1, 1, 1, 1, 1, 0, 1
+};
+
+/*
+   struct v4l2_ctrl_config {
+	const struct v4l2_ctrl_ops *ops;
+	const struct v4l2_ctrl_type_ops *type_ops;
+	u32 id;
+	const char *name;
+	enum v4l2_ctrl_type type;
+	s64 min;
+	s64 max;
+	u64 step;
+	s64 def;
+	u32 dims[V4L2_CTRL_MAX_DIMS];
+	u32 elem_size;
+	u32 flags;
+	u64 menu_skip_mask;
+	const char * const *qmenu;
+	const s64 *qmenu_int;
+	unsigned int is_private:1;
+};
+
+
+   */
+static const struct v4l2_ctrl_config vicodec_stateless_ctrl = {
+	.id 		= VICODEC_STATELESS_FWHT,
+	.elem_size	= sizeof(struct v4l2_ctrl_fwht_params),
+	.name 		= "Fwht state params",
+};
+/*
+static const struct vicodec_control cedrus_controls[] = {
+	{
+		.id		= V4L2_CID_MPEG_VIDEO_MPEG2_SLICE_PARAMS,
+		.elem_size	= sizeof(struct v4l2_ctrl_mpeg2_slice_params),
+		.codec		= CEDRUS_CODEC_MPEG2,
+		.required	= true,
+	},
+	{
+		.id		= V4L2_CID_MPEG_VIDEO_MPEG2_QUANTIZATION,
+		.elem_size	= sizeof(struct v4l2_ctrl_mpeg2_quantization),
+		.codec		= CEDRUS_CODEC_MPEG2,
+		.required	= false,
+	},
+};
+*/
+
 static void vicodec_dev_release(struct device *dev)
 {
 }
@@ -93,6 +143,7 @@ struct vicodec_dev {
 	struct v4l2_device	v4l2_dev;
 	struct video_device	enc_vfd;
 	struct video_device	dec_vfd;
+	struct video_device	stateless_dec_vfd;
 #ifdef CONFIG_MEDIA_CONTROLLER
 	struct media_device	mdev;
 #endif
@@ -110,6 +161,7 @@ struct vicodec_ctx {
 	struct v4l2_fh		fh;
 	struct vicodec_dev	*dev;
 	bool			is_enc;
+	bool			is_stateless_dec;
 	spinlock_t		*lock;
 
 	struct v4l2_ctrl_handler hdl;
@@ -1498,7 +1550,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	src_vq->lock = ctx->is_enc ? &ctx->dev->enc_mutex :
 		&ctx->dev->dec_mutex;
-
+	src_vq->supports_requests = ctx->is_stateless_dec ? true : false;
 	ret = vb2_queue_init(src_vq);
 	if (ret)
 		return ret;
@@ -1781,6 +1833,26 @@ static int vicodec_probe(struct platform_device *pdev)
 	}
 	v4l2_info(&dev->v4l2_dev,
 			"Device registered as /dev/video%d\n", vfd->num);
+
+	dev->stateless_dec_vfd = vicodec_videodev;
+	vfd = &dev->stateless_dec_vfd;
+	vfd->lock = &dev->dec_mutex;//TODO - declare a new mutex ?
+	vfd->v4l2_dev = &dev->v4l2_dev;
+	vfd->device_caps = V4L2_CAP_STREAMING |
+		(multiplanar ? V4L2_CAP_VIDEO_M2M_MPLANE : V4L2_CAP_VIDEO_M2M);
+	strscpy(vfd->name, "vicodec-dec", sizeof(vfd->name));
+	v4l2_disable_ioctl(vfd, VIDIOC_ENCODER_CMD);
+	v4l2_disable_ioctl(vfd, VIDIOC_TRY_ENCODER_CMD);
+	video_set_drvdata(vfd, dev);
+
+	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
+	if (ret) {
+		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
+		goto unreg_enc;
+	}
+	v4l2_info(&dev->v4l2_dev,
+			"Device registered as /dev/video%d\n", vfd->num);
+
 
 #ifdef CONFIG_MEDIA_CONTROLLER
 	ret = v4l2_m2m_register_media_controller(dev->enc_dev,
