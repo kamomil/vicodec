@@ -57,8 +57,8 @@ const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div,
 				return v4l2_fwht_pixfmts + i;
 			start_idx--;
 		}
-	pr_info("%s: no info found\n", __func__);
 	}
+	pr_info("%s: no info found\n", __func__);
 	return NULL;
 }
 

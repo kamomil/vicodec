@@ -64,55 +64,10 @@ static const struct v4l2_fwht_pixfmt_info pixfmt_fwht = {
 	V4L2_PIX_FMT_FWHT, 0, 3, 1, 1, 1, 1, 1, 0, 1
 };
 
-#define VICODEC_STATELESS_FWHT (V4L2_CID_USER_BASE | 0x1000)
 
 static const struct v4l2_fwht_pixfmt_info pixfmt_stateless_fwht = {
 	V4L2_PIX_FMT_FWHT_STATELESS, 0, 3, 1, 1, 1, 1, 1, 0, 1
 };
-
-/*
-   struct v4l2_ctrl_config {
-	const struct v4l2_ctrl_ops *ops;
-	const struct v4l2_ctrl_type_ops *type_ops;
-	u32 id;
-	const char *name;
-	enum v4l2_ctrl_type type;
-	s64 min;
-	s64 max;
-	u64 step;
-	s64 def;
-	u32 dims[V4L2_CTRL_MAX_DIMS];
-	u32 elem_size;
-	u32 flags;
-	u64 menu_skip_mask;
-	const char * const *qmenu;
-	const s64 *qmenu_int;
-	unsigned int is_private:1;
-};
-
-
-   */
-static const struct v4l2_ctrl_config vicodec_stateless_ctrl = {
-	.id 		= VICODEC_STATELESS_FWHT,
-	.elem_size	= sizeof(struct v4l2_ctrl_fwht_params),
-	.name 		= "Fwht state params",
-};
-/*
-static const struct vicodec_control cedrus_controls[] = {
-	{
-		.id		= V4L2_CID_MPEG_VIDEO_MPEG2_SLICE_PARAMS,
-		.elem_size	= sizeof(struct v4l2_ctrl_mpeg2_slice_params),
-		.codec		= CEDRUS_CODEC_MPEG2,
-		.required	= true,
-	},
-	{
-		.id		= V4L2_CID_MPEG_VIDEO_MPEG2_QUANTIZATION,
-		.elem_size	= sizeof(struct v4l2_ctrl_mpeg2_quantization),
-		.codec		= CEDRUS_CODEC_MPEG2,
-		.required	= false,
-	},
-};
-*/
 
 static void vicodec_dev_release(struct device *dev)
 {
@@ -1572,6 +1527,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 #define VICODEC_CID_CUSTOM_BASE		(V4L2_CID_MPEG_BASE | 0xf000)
 #define VICODEC_CID_I_FRAME_QP		(VICODEC_CID_CUSTOM_BASE + 0)
 #define VICODEC_CID_P_FRAME_QP		(VICODEC_CID_CUSTOM_BASE + 1)
+#define VICODEC_CID_STATELESS_FWHT	(VICODEC_CID_CUSTOM_BASE + 2)
 
 static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 {
@@ -1620,6 +1576,52 @@ static const struct v4l2_ctrl_config vicodec_ctrl_p_frame = {
 };
 
 /*
+   struct v4l2_ctrl_config {
+   const struct v4l2_ctrl_ops *ops;
+   const struct v4l2_ctrl_type_ops *type_ops;
+   u32 id;
+   const char *name;
+   enum v4l2_ctrl_type type;
+   s64 min;
+   s64 max;
+   u64 step;
+   s64 def;
+   u32 dims[V4L2_CTRL_MAX_DIMS];
+   u32 elem_size;
+   u32 flags;
+   u64 menu_skip_mask;
+   const char * const *qmenu;
+   const s64 *qmenu_int;
+   unsigned int is_private:1;
+   };
+
+
+ */
+static const struct v4l2_ctrl_config vicodec_ctrl_stateless_state = {
+	.id 		= VICODEC_CID_STATELESS_FWHT,
+	.elem_size	= sizeof(struct v4l2_ctrl_fwht_params),
+	.name 		= "FWHT-Stateless State Params",
+	.type 		= V4L2_CTRL_TYPE_U32,
+};
+/*
+   static const struct vicodec_control cedrus_controls[] = {
+   {
+   .id		= V4L2_CID_MPEG_VIDEO_MPEG2_SLICE_PARAMS,
+   .elem_size	= sizeof(struct v4l2_ctrl_mpeg2_slice_params),
+   .codec		= CEDRUS_CODEC_MPEG2,
+   .required	= true,
+   },
+   {
+   .id		= V4L2_CID_MPEG_VIDEO_MPEG2_QUANTIZATION,
+   .elem_size	= sizeof(struct v4l2_ctrl_mpeg2_quantization),
+   .codec		= CEDRUS_CODEC_MPEG2,
+   .required	= false,
+   },
+   };
+ */
+
+
+/*
  * File operations
  */
 static int vicodec_open(struct file *file)
@@ -1642,6 +1644,8 @@ static int vicodec_open(struct file *file)
 
 	if (vfd == &dev->enc_vfd)
 		ctx->is_enc = true;
+	else if (vfd == &dev->stateless_dec_vfd)
+		ctx->is_stateless_dec = true;
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
 	file->private_data = &ctx->fh;
@@ -1650,8 +1654,10 @@ static int vicodec_open(struct file *file)
 	v4l2_ctrl_handler_init(hdl, 4);
 	v4l2_ctrl_new_std(hdl, &vicodec_ctrl_ops, V4L2_CID_MPEG_VIDEO_GOP_SIZE,
 			  1, 16, 1, 10);
+	pr_info("%s: calling new_custom\n", __func__);
 	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_i_frame, NULL);
 	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_p_frame, NULL);
+	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_stateless_state, NULL);
 	if (hdl->error) {
 		rc = hdl->error;
 		v4l2_ctrl_handler_free(hdl);
@@ -1907,6 +1913,7 @@ static int vicodec_remove(struct platform_device *pdev)
 	media_device_unregister(&dev->mdev);
 	v4l2_m2m_unregister_media_controller(dev->enc_dev);
 	v4l2_m2m_unregister_media_controller(dev->dec_dev);
+	v4l2_m2m_unregister_media_controller(dev->stateless_dec_vfd);
 	media_device_cleanup(&dev->mdev);
 #endif
 
@@ -1914,6 +1921,7 @@ static int vicodec_remove(struct platform_device *pdev)
 	v4l2_m2m_release(dev->dec_dev);
 	video_unregister_device(&dev->enc_vfd);
 	video_unregister_device(&dev->dec_vfd);
+	video_unregister_device(&dev->stateless_dec_vfd);
 	v4l2_device_unregister(&dev->v4l2_dev);
 
 	return 0;
