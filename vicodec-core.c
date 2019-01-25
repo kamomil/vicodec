@@ -1638,6 +1638,7 @@ static int vicodec_open(struct file *file)
 		return -ERESTARTSYS;
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx) {
+		pr_info("dafna: %s no mem\n",__func__);
 		rc = -ENOMEM;
 		goto open_unlock;
 	}
@@ -1659,6 +1660,7 @@ static int vicodec_open(struct file *file)
 	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_p_frame, NULL);
 	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_stateless_state, NULL);
 	if (hdl->error) {
+		pr_info("dafna: %s hdl err\n",__func__);
 		rc = hdl->error;
 		v4l2_ctrl_handler_free(hdl);
 		kfree(ctx);
@@ -1704,8 +1706,8 @@ static int vicodec_open(struct file *file)
 	}
 
 	if (IS_ERR(ctx->fh.m2m_ctx)) {
+		pr_info("dafna: %s ctx m2m err\n",__func__);
 		rc = PTR_ERR(ctx->fh.m2m_ctx);
-
 		v4l2_ctrl_handler_free(hdl);
 		v4l2_fh_exit(&ctx->fh);
 		kfree(ctx);
@@ -1766,6 +1768,7 @@ static int register_instance(struct vicodec_dev *dev,
 	struct video_device *vfd;
 	int ret;
 
+	pr_info("%s: start for %s\n", __func__, name);
 	dev_instance->vfd = vicodec_videodev;
 	vfd = &dev_instance->vfd;
 	vfd->lock = &dev_instance->mutex;
@@ -1784,11 +1787,11 @@ static int register_instance(struct vicodec_dev *dev,
 
 	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
 	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to register video device '%s'\n", name);
 		return ret;
 	}
 	v4l2_info(&dev->v4l2_dev,
-			"Device registered as /dev/video%d\n", vfd->num);
+			"Device '%s' registered as /dev/video%d\n", name, vfd->num);
 	return ret;
 }
 
@@ -1797,6 +1800,7 @@ static int vicodec_probe(struct platform_device *pdev)
 	struct vicodec_dev *dev;
 	int ret;
 
+	pr_info("%s: start\n", __func__);
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -1824,21 +1828,21 @@ static int vicodec_probe(struct platform_device *pdev)
 
 	dev->enc_instance.m2m_dev = v4l2_m2m_init(&m2m_ops);
 	if (IS_ERR(dev->enc_instance.m2m_dev)) {
-		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec device\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec enc device\n");
 		ret = PTR_ERR(dev->enc_instance.m2m_dev);
 		goto unreg_dev;
 	}
 
 	dev->dec_instance.m2m_dev = v4l2_m2m_init(&m2m_ops);
 	if (IS_ERR(dev->dec_instance.m2m_dev)) {
-		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec device\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec dec device\n");
 		ret = PTR_ERR(dev->dec_instance.m2m_dev);
 		goto err_enc_m2m;
 	}
 
 	dev->stateless_dec_instance.m2m_dev = v4l2_m2m_init(&m2m_ops);
 	if (IS_ERR(dev->stateless_dec_instance.m2m_dev)) {
-		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec device\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec stateless dec device\n");
 		ret = PTR_ERR(dev->stateless_dec_instance.m2m_dev);
 		goto err_dec_m2m;
 	}
@@ -1860,21 +1864,21 @@ static int vicodec_probe(struct platform_device *pdev)
 	ret = v4l2_m2m_register_media_controller(dev->enc_instance.m2m_dev,
 			&dev->enc_instance.vfd, MEDIA_ENT_F_PROC_VIDEO_ENCODER);
 	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller for enc\n");
 		goto unreg_m2m;
 	}
 
 	ret = v4l2_m2m_register_media_controller(dev->dec_instance.m2m_dev,
 			&dev->dec_instance.vfd, MEDIA_ENT_F_PROC_VIDEO_DECODER);
 	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller for dec\n");
 		goto unreg_m2m_enc_mc;
 	}
 
 	ret = v4l2_m2m_register_media_controller(dev->stateless_dec_instance.m2m_dev,
 			&dev->stateless_dec_instance.vfd, MEDIA_ENT_F_PROC_VIDEO_DECODER);
 	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller\n");
+		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller for stateless dec\n");
 		goto unreg_m2m_dec_mc;
 	}
 
@@ -1884,6 +1888,7 @@ static int vicodec_probe(struct platform_device *pdev)
 		goto unreg_m2m_sdec_mc;
 	}
 #endif
+	pr_info("%s: end ok\n", __func__);
 	return 0;
 
 #ifdef CONFIG_MEDIA_CONTROLLER
@@ -1909,6 +1914,7 @@ err_enc_m2m:
 unreg_dev:
 	v4l2_device_unregister(&dev->v4l2_dev);
 
+	pr_info("%s: end not so good ret=%d\n", __func__, ret);
 	return ret;
 }
 
