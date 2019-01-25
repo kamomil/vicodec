@@ -94,22 +94,22 @@ enum {
 	V4L2_M2M_DST = 1,
 };
 
+struct vicodec_dev_instance {
+	struct video_device     vfd;
+	struct mutex            mutex;
+	spinlock_t              lock;
+	struct v4l2_m2m_dev     *m2m_dev;
+};
+
 struct vicodec_dev {
 	struct v4l2_device	v4l2_dev;
-	struct video_device	enc_vfd;
-	struct video_device	dec_vfd;
-	struct video_device	stateless_dec_vfd;
+	struct vicodec_dev_instance enc_instance;
+	struct vicodec_dev_instance dec_instance;
+	struct vicodec_dev_instance stateless_dec_instance;
 #ifdef CONFIG_MEDIA_CONTROLLER
 	struct media_device	mdev;
 #endif
 
-	struct mutex		enc_mutex;
-	struct mutex		dec_mutex;
-	spinlock_t		enc_lock;
-	spinlock_t		dec_lock;
-
-	struct v4l2_m2m_dev	*enc_dev;
-	struct v4l2_m2m_dev	*dec_dev;
 };
 
 struct vicodec_ctx {
@@ -322,9 +322,9 @@ static void device_run(void *priv)
 	spin_unlock(ctx->lock);
 
 	if (ctx->is_enc)
-		v4l2_m2m_job_finish(dev->enc_dev, ctx->fh.m2m_ctx);
+		v4l2_m2m_job_finish(dev->enc_instance.m2m_dev, ctx->fh.m2m_ctx);
 	else
-		v4l2_m2m_job_finish(dev->dec_dev, ctx->fh.m2m_ctx);
+		v4l2_m2m_job_finish(dev->dec_instance.m2m_dev, ctx->fh.m2m_ctx);
 }
 
 static void job_remove_src_buf(struct vicodec_ctx *ctx, u32 state)
@@ -1503,8 +1503,8 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->ops = &vicodec_qops;
 	src_vq->mem_ops = &vb2_vmalloc_memops;
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
-	src_vq->lock = ctx->is_enc ? &ctx->dev->enc_mutex :
-		&ctx->dev->dec_mutex;
+	src_vq->lock = ctx->is_enc ? &ctx->dev->enc_instance.mutex :
+		&ctx->dev->dec_instance.mutex;
 	src_vq->supports_requests = ctx->is_stateless_dec ? true : false;
 	ret = vb2_queue_init(src_vq);
 	if (ret)
@@ -1642,9 +1642,9 @@ static int vicodec_open(struct file *file)
 		goto open_unlock;
 	}
 
-	if (vfd == &dev->enc_vfd)
+	if (vfd == &dev->enc_instance.vfd)
 		ctx->is_enc = true;
-	else if (vfd == &dev->stateless_dec_vfd)
+	else if (vfd == &dev->stateless_dec_instance.vfd)
 		ctx->is_stateless_dec = true;
 
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
@@ -1694,13 +1694,13 @@ static int vicodec_open(struct file *file)
 	ctx->state.colorspace = V4L2_COLORSPACE_REC709;
 
 	if (ctx->is_enc) {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->enc_dev, ctx,
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->enc_instance.m2m_dev, ctx,
 						    &queue_init);
-		ctx->lock = &dev->enc_lock;
+		ctx->lock = &dev->enc_instance.lock;
 	} else {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->dec_dev, ctx,
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->dec_instance.m2m_dev, ctx,
 						    &queue_init);
-		ctx->lock = &dev->dec_lock;
+		ctx->lock = &dev->dec_instance.lock;
 	}
 
 	if (IS_ERR(ctx->fh.m2m_ctx)) {
@@ -1759,18 +1759,51 @@ static const struct v4l2_m2m_ops m2m_ops = {
 	.job_ready	= job_ready,
 };
 
+static int register_instance(struct vicodec_dev *dev,
+			     struct vicodec_dev_instance* dev_instance,
+			     const char* name, bool is_enc)
+{
+	struct video_device *vfd;
+	int ret;
+
+	dev_instance->vfd = vicodec_videodev;
+	vfd = &dev_instance->vfd;
+	vfd->lock = &dev_instance->mutex;
+	vfd->v4l2_dev = &dev->v4l2_dev;
+	strscpy(vfd->name, name, sizeof(vfd->name));
+	vfd->device_caps = V4L2_CAP_STREAMING |
+		(multiplanar ? V4L2_CAP_VIDEO_M2M_MPLANE : V4L2_CAP_VIDEO_M2M);
+	if (is_enc) {
+		v4l2_disable_ioctl(vfd, VIDIOC_DECODER_CMD);
+		v4l2_disable_ioctl(vfd, VIDIOC_TRY_DECODER_CMD);
+	} else {
+		v4l2_disable_ioctl(vfd, VIDIOC_ENCODER_CMD);
+		v4l2_disable_ioctl(vfd, VIDIOC_TRY_ENCODER_CMD);
+	}
+	video_set_drvdata(vfd, dev);
+
+	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
+	if (ret) {
+		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
+		return ret;
+	}
+	v4l2_info(&dev->v4l2_dev,
+			"Device registered as /dev/video%d\n", vfd->num);
+	return ret;
+}
+
 static int vicodec_probe(struct platform_device *pdev)
 {
 	struct vicodec_dev *dev;
-	struct video_device *vfd;
 	int ret;
 
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
 
-	spin_lock_init(&dev->enc_lock);
-	spin_lock_init(&dev->dec_lock);
+	spin_lock_init(&dev->enc_instance.lock);
+	spin_lock_init(&dev->dec_instance.lock);
+	spin_lock_init(&dev->stateless_dec_instance.lock);
 
 	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
 	if (ret)
@@ -1783,120 +1816,96 @@ static int vicodec_probe(struct platform_device *pdev)
 	dev->v4l2_dev.mdev = &dev->mdev;
 #endif
 
-	mutex_init(&dev->enc_mutex);
-	mutex_init(&dev->dec_mutex);
+	mutex_init(&dev->enc_instance.mutex);
+	mutex_init(&dev->dec_instance.mutex);
+	mutex_init(&dev->stateless_dec_instance.mutex);
 
 	platform_set_drvdata(pdev, dev);
 
-	dev->enc_dev = v4l2_m2m_init(&m2m_ops);
-	if (IS_ERR(dev->enc_dev)) {
+	dev->enc_instance.m2m_dev = v4l2_m2m_init(&m2m_ops);
+	if (IS_ERR(dev->enc_instance.m2m_dev)) {
 		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec device\n");
-		ret = PTR_ERR(dev->enc_dev);
+		ret = PTR_ERR(dev->enc_instance.m2m_dev);
 		goto unreg_dev;
 	}
 
-	dev->dec_dev = v4l2_m2m_init(&m2m_ops);
-	if (IS_ERR(dev->dec_dev)) {
+	dev->dec_instance.m2m_dev = v4l2_m2m_init(&m2m_ops);
+	if (IS_ERR(dev->dec_instance.m2m_dev)) {
 		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec device\n");
-		ret = PTR_ERR(dev->dec_dev);
+		ret = PTR_ERR(dev->dec_instance.m2m_dev);
 		goto err_enc_m2m;
 	}
 
-	dev->enc_vfd = vicodec_videodev;
-	vfd = &dev->enc_vfd;
-	vfd->lock = &dev->enc_mutex;
-	vfd->v4l2_dev = &dev->v4l2_dev;
-	strscpy(vfd->name, "vicodec-enc", sizeof(vfd->name));
-	vfd->device_caps = V4L2_CAP_STREAMING |
-		(multiplanar ? V4L2_CAP_VIDEO_M2M_MPLANE : V4L2_CAP_VIDEO_M2M);
-	v4l2_disable_ioctl(vfd, VIDIOC_DECODER_CMD);
-	v4l2_disable_ioctl(vfd, VIDIOC_TRY_DECODER_CMD);
-	video_set_drvdata(vfd, dev);
-
-	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
-	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
+	dev->stateless_dec_instance.m2m_dev = v4l2_m2m_init(&m2m_ops);
+	if (IS_ERR(dev->stateless_dec_instance.m2m_dev)) {
+		v4l2_err(&dev->v4l2_dev, "Failed to init vicodec device\n");
+		ret = PTR_ERR(dev->stateless_dec_instance.m2m_dev);
 		goto err_dec_m2m;
 	}
-	v4l2_info(&dev->v4l2_dev,
-			"Device registered as /dev/video%d\n", vfd->num);
 
-	dev->dec_vfd = vicodec_videodev;
-	vfd = &dev->dec_vfd;
-	vfd->lock = &dev->dec_mutex;
-	vfd->v4l2_dev = &dev->v4l2_dev;
-	vfd->device_caps = V4L2_CAP_STREAMING |
-		(multiplanar ? V4L2_CAP_VIDEO_M2M_MPLANE : V4L2_CAP_VIDEO_M2M);
-	strscpy(vfd->name, "vicodec-dec", sizeof(vfd->name));
-	v4l2_disable_ioctl(vfd, VIDIOC_ENCODER_CMD);
-	v4l2_disable_ioctl(vfd, VIDIOC_TRY_ENCODER_CMD);
-	video_set_drvdata(vfd, dev);
+	if (register_instance(dev, &dev->enc_instance,
+			      "videdev-enc", true))
+		goto err_sdec_m2m;
 
-	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
-	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
+	if (register_instance(dev, &dev->dec_instance,
+				"videdev-statefull-dec", false))
 		goto unreg_enc;
-	}
-	v4l2_info(&dev->v4l2_dev,
-			"Device registered as /dev/video%d\n", vfd->num);
 
-	dev->stateless_dec_vfd = vicodec_videodev;
-	vfd = &dev->stateless_dec_vfd;
-	vfd->lock = &dev->dec_mutex;//TODO - declare a new mutex ?
-	vfd->v4l2_dev = &dev->v4l2_dev;
-	vfd->device_caps = V4L2_CAP_STREAMING |
-		(multiplanar ? V4L2_CAP_VIDEO_M2M_MPLANE : V4L2_CAP_VIDEO_M2M);
-	strscpy(vfd->name, "vicodec-dec", sizeof(vfd->name));
-	v4l2_disable_ioctl(vfd, VIDIOC_ENCODER_CMD);
-	v4l2_disable_ioctl(vfd, VIDIOC_TRY_ENCODER_CMD);
-	video_set_drvdata(vfd, dev);
-
-	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 0);
-	if (ret) {
-		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
-		goto unreg_enc;
-	}
-	v4l2_info(&dev->v4l2_dev,
-			"Device registered as /dev/video%d\n", vfd->num);
+	if (register_instance(dev, &dev->stateless_dec_instance,
+				"videdev-stateless-dec", false))
+		goto unreg_dec;
 
 
 #ifdef CONFIG_MEDIA_CONTROLLER
-	ret = v4l2_m2m_register_media_controller(dev->enc_dev,
-			&dev->enc_vfd, MEDIA_ENT_F_PROC_VIDEO_ENCODER);
+	ret = v4l2_m2m_register_media_controller(dev->enc_instance.m2m_dev,
+			&dev->enc_instance.vfd, MEDIA_ENT_F_PROC_VIDEO_ENCODER);
 	if (ret) {
 		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller\n");
 		goto unreg_m2m;
 	}
 
-	ret = v4l2_m2m_register_media_controller(dev->dec_dev,
-			&dev->dec_vfd, MEDIA_ENT_F_PROC_VIDEO_DECODER);
+	ret = v4l2_m2m_register_media_controller(dev->dec_instance.m2m_dev,
+			&dev->dec_instance.vfd, MEDIA_ENT_F_PROC_VIDEO_DECODER);
 	if (ret) {
 		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller\n");
 		goto unreg_m2m_enc_mc;
 	}
 
+	ret = v4l2_m2m_register_media_controller(dev->stateless_dec_instance.m2m_dev,
+			&dev->stateless_dec_instance.vfd, MEDIA_ENT_F_PROC_VIDEO_DECODER);
+	if (ret) {
+		v4l2_err(&dev->v4l2_dev, "Failed to init mem2mem media controller\n");
+		goto unreg_m2m_dec_mc;
+	}
+
 	ret = media_device_register(&dev->mdev);
 	if (ret) {
 		v4l2_err(&dev->v4l2_dev, "Failed to register mem2mem media device\n");
-		goto unreg_m2m_dec_mc;
+		goto unreg_m2m_sdec_mc;
 	}
 #endif
 	return 0;
 
 #ifdef CONFIG_MEDIA_CONTROLLER
+unreg_m2m_sdec_mc:
+	v4l2_m2m_unregister_media_controller(dev->stateless_dec_instance.m2m_dev);
 unreg_m2m_dec_mc:
-	v4l2_m2m_unregister_media_controller(dev->dec_dev);
+	v4l2_m2m_unregister_media_controller(dev->dec_instance.m2m_dev);
 unreg_m2m_enc_mc:
-	v4l2_m2m_unregister_media_controller(dev->enc_dev);
+	v4l2_m2m_unregister_media_controller(dev->enc_instance.m2m_dev);
 unreg_m2m:
-	video_unregister_device(&dev->dec_vfd);
+	video_unregister_device(&dev->stateless_dec_instance.vfd);
 #endif
+unreg_dec:
+	video_unregister_device(&dev->dec_instance.vfd);
 unreg_enc:
-	video_unregister_device(&dev->enc_vfd);
+	video_unregister_device(&dev->enc_instance.vfd);
+err_sdec_m2m:
+	v4l2_m2m_release(dev->stateless_dec_instance.m2m_dev);
 err_dec_m2m:
-	v4l2_m2m_release(dev->dec_dev);
+	v4l2_m2m_release(dev->dec_instance.m2m_dev);
 err_enc_m2m:
-	v4l2_m2m_release(dev->enc_dev);
+	v4l2_m2m_release(dev->enc_instance.m2m_dev);
 unreg_dev:
 	v4l2_device_unregister(&dev->v4l2_dev);
 
@@ -1911,17 +1920,17 @@ static int vicodec_remove(struct platform_device *pdev)
 
 #ifdef CONFIG_MEDIA_CONTROLLER
 	media_device_unregister(&dev->mdev);
-	v4l2_m2m_unregister_media_controller(dev->enc_dev);
-	v4l2_m2m_unregister_media_controller(dev->dec_dev);
-	v4l2_m2m_unregister_media_controller(dev->stateless_dec_vfd);
+	v4l2_m2m_unregister_media_controller(dev->enc_instance.m2m_dev);
+	v4l2_m2m_unregister_media_controller(dev->dec_instance.m2m_dev);
+	v4l2_m2m_unregister_media_controller(dev->stateless_dec_instance.m2m_dev);
 	media_device_cleanup(&dev->mdev);
 #endif
 
-	v4l2_m2m_release(dev->enc_dev);
-	v4l2_m2m_release(dev->dec_dev);
-	video_unregister_device(&dev->enc_vfd);
-	video_unregister_device(&dev->dec_vfd);
-	video_unregister_device(&dev->stateless_dec_vfd);
+	v4l2_m2m_release(dev->enc_instance.m2m_dev);
+	v4l2_m2m_release(dev->dec_instance.m2m_dev);
+	video_unregister_device(&dev->enc_instance.vfd);
+	video_unregister_device(&dev->dec_instance.vfd);
+	video_unregister_device(&dev->stateless_dec_instance.vfd);
 	v4l2_device_unregister(&dev->v4l2_dev);
 
 	return 0;
