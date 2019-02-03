@@ -171,10 +171,23 @@ static int device_process(struct vicodec_ctx *ctx,
 	int ret;
 
 	q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-	if (ctx->is_enc)
+	if (ctx->is_enc) {
 		p_src = vb2_plane_vaddr(&src_vb->vb2_buf, 0);
-	else
+	}
+	else {
 		p_src = state->compressed_frame;
+	}
+	if (ctx->is_stateless) {
+		struct media_request *src_req;
+		/* Apply request(s) controls if needed. */
+		src_req = src_vb->vb2_buf.req_obj.req;
+
+		if (!src_req) {
+			v4l2_err(&dev->v4l2_dev, "%s: src_req is NULL\n", __func__);
+			return -EFAULT;
+		}
+		v4l2_ctrl_request_setup(src_req, &ctx->hdl);
+	}
 	p_dst = vb2_plane_vaddr(&dst_vb->vb2_buf, 0);
 	if (!p_src || !p_dst) {
 		v4l2_err(&dev->v4l2_dev,
@@ -449,7 +462,7 @@ static int job_ready(void *priv)
 
 	if (ctx->source_changed)
 		return 0;
-	if (ctx->is_enc || ctx->comp_has_frame)
+	if (ctx->is_stateless || ctx->is_enc || ctx->comp_has_frame)
 		return 1;
 
 restart:
@@ -1496,6 +1509,11 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 	case VICODEC_CID_P_FRAME_QP:
 		ctx->state.p_frame_qp = ctrl->val;
 		return 0;
+	case VICODEC_CID_STATELESS_FWHT:
+		pr_info("%s: stateless ctrl!\n", __func__);
+		//pr_info("%s: wxh = %ux%u back_ts=%lu\n", __func__, params->width,
+		//	params->height, params->backward_ref_ts);
+		return 0;
 	}
 	return -EINVAL;
 }
@@ -1525,12 +1543,58 @@ static const struct v4l2_ctrl_config vicodec_ctrl_p_frame = {
 	.def = 20,
 	.step = 1,
 };
+bool vicodec_ctrl_equal(const struct v4l2_ctrl *ctrl, u32 idx,
+		union v4l2_ctrl_ptr ptr1,
+		union v4l2_ctrl_ptr ptr2)
+{
+	pr_info("%s: got ctrl %p\n", __func__, ctrl);
+	pr_info("%s: ctrl->handler = %p\n", __func__, ctrl->handler);
+	idx *= ctrl->elem_size;
+	return !memcmp(ptr1.p + idx, ptr2.p + idx, ctrl->elem_size);
+}
+
+
+
+static void vicodec_ctrl_init(const struct v4l2_ctrl *ctrl, u32 idx,
+		union v4l2_ctrl_ptr ptr)
+{
+	pr_info("%s: got ctrl %p\n", __func__, ctrl);
+	pr_info("%s: ctrl->handler = %p\n", __func__, ctrl->handler);
+	idx *= ctrl->elem_size;
+	memset(ptr.p + idx, 0, ctrl->elem_size);
+}
+
+void vicodec_ctrl_log(const struct v4l2_ctrl *ctrl)
+{
+	pr_info("%s: got ctrl %s\n", __func__, ctrl ? ctrl->name : "NULL");
+}
+int vicodec_ctrl_validate(const struct v4l2_ctrl *ctrl, u32 idx,
+		union v4l2_ctrl_ptr ptr)
+{
+	struct v4l2_ctrl_fwht_params* params = (struct v4l2_ctrl_fwht_params*) ptr.p;
+	pr_info("%s: got ctrl %s\n", __func__, ctrl ? ctrl->name : "NULL");
+	pr_info("%s: ctrl->handler = %p\n", __func__, ctrl->handler);
+	pr_info("%s: ctrl idx %u\n", __func__, idx);
+	pr_info("%s: wxh = %ux%u back_ts=%llu\n", __func__, params->width,
+		params->height, params->backward_ref_ts);
+
+	return 0;
+
+}
+static const struct v4l2_ctrl_type_ops vicodec_type_ops = {
+	.log = vicodec_ctrl_log,
+	.validate = vicodec_ctrl_validate,
+	.init = vicodec_ctrl_init,
+	.equal = vicodec_ctrl_equal,
+};
+
 
 static const struct v4l2_ctrl_config vicodec_ctrl_stateless_state = {
 	.id		= VICODEC_CID_STATELESS_FWHT,
 	.elem_size	= sizeof(struct v4l2_ctrl_fwht_params),
 	.name		= "FWHT-Stateless State Params",
 	.type		= V4L2_CTRL_TYPE_FWHT_PARAMS,
+	.type_ops	= &vicodec_type_ops,
 };
 
 /*
@@ -1650,6 +1714,77 @@ static int vicodec_release(struct file *file)
 	return 0;
 }
 
+static int vicodec_request_validate(struct media_request *req)
+{
+	struct media_request_object *obj;
+	struct v4l2_ctrl_handler *parent_hdl, *hdl;
+	struct vicodec_ctx *ctx = NULL;
+	struct v4l2_ctrl *ctrl;
+	unsigned int count;
+
+	count = vb2_request_buffer_cnt(req);
+	if (!count) {
+		v4l2_info(&ctx->dev->v4l2_dev,
+			  "No buffer was provided with the request\n");
+		return -ENOENT;
+	} else if (count > 1) {
+		v4l2_info(&ctx->dev->v4l2_dev,
+			  "More than one buffer was provided with the request\n");
+		return -EINVAL;
+	}
+
+	list_for_each_entry(obj, &req->objects, list) {
+		struct vb2_buffer *vb;
+
+		if (vb2_request_object_is_buffer(obj)) {
+			vb = container_of(obj, struct vb2_buffer, req_obj);
+			ctx = vb2_get_drv_priv(vb->vb2_queue);
+
+			break;
+		}
+	}
+
+	if (!ctx) {
+		v4l2_info(&ctx->dev->v4l2_dev,
+				"No buffer was provided with the request\n");
+		return -ENOENT;
+	}
+
+	parent_hdl = &ctx->hdl;
+
+	hdl = v4l2_ctrl_request_hdl_find(req, parent_hdl);
+	if (!hdl) {
+		v4l2_info(&ctx->dev->v4l2_dev, "Missing codec control(s)\n");
+		return -ENOENT;
+	}
+	/*
+	static const struct v4l2_ctrl_config vicodec_ctrl_stateless_state = {
+		.id		= VICODEC_CID_STATELESS_FWHT,
+		.elem_size	= sizeof(struct v4l2_ctrl_fwht_params),
+		.name		= "FWHT-Stateless State Params",
+		.type		= V4L2_CTRL_TYPE_FWHT_PARAMS,
+	};
+	*/
+
+	ctrl = v4l2_ctrl_request_hdl_ctrl_find(hdl, vicodec_ctrl_stateless_state.id);
+	if (!ctrl) {
+		v4l2_info(&ctx->dev->v4l2_dev,
+			  "Missing required codec control\n");
+		return -ENOENT;
+	}
+
+	if (ctrl->elem_size != vicodec_ctrl_stateless_state.elem_size) {
+		v4l2_info(&ctx->dev->v4l2_dev,
+			  "wrong size, got %u expected %u\n",
+			  ctrl->elem_size,
+			  vicodec_ctrl_stateless_state.elem_size);
+		return -ENOENT;
+
+	}
+
+	return vb2_request_validate(req);
+}
+
 static const struct v4l2_file_operations vicodec_fops = {
 	.owner		= THIS_MODULE,
 	.open		= vicodec_open,
@@ -1666,6 +1801,11 @@ static const struct video_device vicodec_videodev = {
 	.ioctl_ops	= &vicodec_ioctl_ops,
 	.minor		= -1,
 	.release	= video_device_release_empty,
+};
+
+static const struct media_device_ops vicodec_m2m_media_ops = {
+	.req_validate	= vicodec_request_validate,
+	.req_queue	= v4l2_m2m_request_queue,
 };
 
 static const struct v4l2_m2m_ops m2m_ops = {
@@ -1732,6 +1872,7 @@ static int vicodec_probe(struct platform_device *pdev)
 	dev->mdev.dev = &pdev->dev;
 	strscpy(dev->mdev.model, "vicodec", sizeof(dev->mdev.model));
 	media_device_init(&dev->mdev);
+	dev->mdev.ops = &vicodec_m2m_media_ops;
 	dev->v4l2_dev.mdev = &dev->mdev;
 #endif
 
