@@ -1813,7 +1813,27 @@ static int vicodec_request_validate(struct media_request *req)
 	unsigned int count;
 
 	pr_info("%s: start req = %p\n", __func__, req);
+	list_for_each_entry(obj, &req->objects, list) {
+		struct vb2_buffer *vb;
+		pr_info("%s: obj = %p\n", __func__, obj);
+		pr_info("%s: is b %d\n", __func__, vb2_request_object_is_buffer(obj));
+
+		if (vb2_request_object_is_buffer(obj)) {
+			vb = container_of(obj, struct vb2_buffer, req_obj);
+			pr_info("%s: vb = %p\n", __func__, vb);
+			ctx = vb2_get_drv_priv(vb->vb2_queue);
+
+			break;
+		}
+	}
+
+	if (!ctx) {
+		pr_err("No buffer was provided with the request\n");
+		return -ENOENT;
+	}
+
 	count = vb2_request_buffer_cnt(req);
+	pr_info("%s: start req = %p count = %u\n", __func__, req, count);
 	if (!count) {
 		v4l2_info(&ctx->dev->v4l2_dev,
 			  "No buffer was provided with the request\n");
@@ -1826,24 +1846,6 @@ static int vicodec_request_validate(struct media_request *req)
 
 	pr_info("%s: start for_each\n", __func__);
 
-	list_for_each_entry(obj, &req->objects, list) {
-		struct vb2_buffer *vb;
-
-		if (vb2_request_object_is_buffer(obj)) {
-			vb = container_of(obj, struct vb2_buffer, req_obj);
-			pr_info("%s: vb = %p\n", __func__, vb);
-			ctx = vb2_get_drv_priv(vb->vb2_queue);
-
-			break;
-		}
-	}
-
-	if (!ctx) {
-		v4l2_info(&ctx->dev->v4l2_dev,
-				"No buffer was provided with the request\n");
-		return -ENOENT;
-	}
-
 	parent_hdl = &ctx->hdl;
 
 	hdl = v4l2_ctrl_request_hdl_find(req, parent_hdl);
@@ -1852,15 +1854,6 @@ static int vicodec_request_validate(struct media_request *req)
 		v4l2_info(&ctx->dev->v4l2_dev, "Missing codec control(s)\n");
 		return -ENOENT;
 	}
-	/*
-	static const struct v4l2_ctrl_config vicodec_ctrl_stateless_state = {
-		.id		= VICODEC_CID_STATELESS_FWHT,
-		.elem_size	= sizeof(struct v4l2_ctrl_fwht_params),
-		.name		= "FWHT-Stateless State Params",
-		.type		= V4L2_CTRL_TYPE_FWHT_PARAMS,
-	};
-	*/
-
 	ctrl = v4l2_ctrl_request_hdl_ctrl_find(hdl, vicodec_ctrl_stateless_state.id);
 	if (!ctrl) {
 		v4l2_info(&ctx->dev->v4l2_dev,
