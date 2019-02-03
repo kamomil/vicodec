@@ -1556,7 +1556,7 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 					       struct vicodec_ctx, hdl);
 	pr_info("dafna: %s\n",__func__);
 
-	pr_info("%s: ctrl->handler = %p\n", __func__, ctrl->handler);
+	pr_info("%s: ctrl->handler = %p, name = %s\n", __func__, ctrl->handler, ctrl->name);
 	switch (ctrl->id) {
 	case V4L2_CID_MPEG_VIDEO_GOP_SIZE:
 		ctx->state.gop_size = ctrl->val;
@@ -1682,6 +1682,7 @@ static int vicodec_open(struct file *file)
 	else if (vfd == &dev->stateless_dec.vfd)
 		ctx->is_stateless = true;
 
+	pr_info("%s: stateless.vfd = %p is statless: %u\n",__func__, &dev->stateless_dec.vfd, ctx->is_stateless);
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
 	file->private_data = &ctx->fh;
 	ctx->dev = dev;
@@ -1788,7 +1789,7 @@ static int vicodec_request_validate(struct media_request *req)
 	struct v4l2_ctrl *ctrl;
 	unsigned int count;
 
-	pr_info("%s: start\n", __func__);
+	pr_info("%s: start req = %p\n", __func__, req);
 	count = vb2_request_buffer_cnt(req);
 	if (!count) {
 		v4l2_info(&ctx->dev->v4l2_dev,
@@ -1800,11 +1801,14 @@ static int vicodec_request_validate(struct media_request *req)
 		return -EINVAL;
 	}
 
+	pr_info("%s: start for_each\n", __func__);
+
 	list_for_each_entry(obj, &req->objects, list) {
 		struct vb2_buffer *vb;
 
 		if (vb2_request_object_is_buffer(obj)) {
 			vb = container_of(obj, struct vb2_buffer, req_obj);
+			pr_info("%s: vb = %p\n", __func__, vb);
 			ctx = vb2_get_drv_priv(vb->vb2_queue);
 
 			break;
@@ -1820,6 +1824,7 @@ static int vicodec_request_validate(struct media_request *req)
 	parent_hdl = &ctx->hdl;
 
 	hdl = v4l2_ctrl_request_hdl_find(req, parent_hdl);
+	pr_info("%s: hdl = %p, parent_hdl = %p\n", __func__, hdl, parent_hdl);
 	if (!hdl) {
 		v4l2_info(&ctx->dev->v4l2_dev, "Missing codec control(s)\n");
 		return -ENOENT;
@@ -1895,6 +1900,7 @@ static int register_instance(struct vicodec_dev *dev,
 		return PTR_ERR(dev_instance->m2m_dev);
 	}
 
+	pr_info("%s: vfd = %p\n", __func__, &dev_instance->vfd);
 	dev_instance->vfd = vicodec_videodev;
 	vfd = &dev_instance->vfd;
 	vfd->lock = &dev_instance->mutex;
