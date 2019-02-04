@@ -117,6 +117,7 @@ struct vicodec_ctx {
 	bool			is_enc;
 	bool			is_stateless;
 	spinlock_t		*lock;
+	struct media_request	*cur_req;
 
 	struct v4l2_ctrl_handler hdl;
 
@@ -127,6 +128,7 @@ struct vicodec_ctx {
 	struct vicodec_q_data   q_data[2];
 	struct v4l2_fwht_state	state;
 
+	
 	u32			cur_buf_offset;
 	u32			comp_max_size;
 	u32			comp_size;
@@ -186,6 +188,7 @@ static int device_process(struct vicodec_ctx *ctx,
 			v4l2_err(&dev->v4l2_dev, "%s: src_req is NULL\n", __func__);
 			return -EFAULT;
 		}
+		ctx->cur_req = src_req;
 		v4l2_ctrl_request_setup(src_req, &ctx->hdl);
 		v4l2_ctrl_request_complete(src_req, &ctx->hdl);
 
@@ -1594,6 +1597,38 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 		return 0;
 	case VICODEC_CID_STATELESS_FWHT:
 		pr_info("%s: stateless ctrl!\n", __func__);
+		struct media_request *src_req;
+		struct vb2_v4l2_buffer *src_buf;
+		struct v4l2_ctrl_fwht_params* params =
+			(struct v4l2_ctrl_fwht_params*) ctrl->p_cur.p;
+		struct vb2_queue *vq_out = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
+				V4L2_BUF_TYPE_VIDEO_OUTPUT);
+		struct vb2_v4l2_buffer *ref_buf;
+		struct ref_frame *ref_frame = &ctx->state.ref_frame;
+
+		src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
+		if (!src_buf)
+			return 0;
+		src_req = src_buf->vb2_buf.req_obj.req;
+		if (src_req != ctx->cur_req)
+			return 0;
+		ref_frame->luma = NULL;
+		ref_frame->cb = NULL;
+		ref_frame->cr = NULL;
+		ref_frame->alpha = NULL;
+		ctx->state.visible_width = params->width;
+		ctx->state.visible_height = params->height;
+
+		int idx = vb2_find_timestamp(vq_out, params->backward_ref_ts, 0);
+		if (idx < 0)
+			return 0;
+		pr_info("%s: got idx %d\n", __func__, idx);
+		ref_buf = v4l2_m2m_buf_by_idx(vq_out, idx);
+		if (!ref_buf)
+			return 0;
+
+		ref_frame->luma = vb2_plane_vaddr(&ref_buf->vb2_buf, 0);
+
 		//pr_info("%s: wxh = %ux%u back_ts=%lu\n", __func__, params->width,
 		//	params->height, params->backward_ref_ts);
 		return 0;
