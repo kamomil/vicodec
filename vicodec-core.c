@@ -138,6 +138,7 @@ struct vicodec_ctx {
 	bool			comp_has_next_frame;
 	bool			first_source_change_sent;
 	bool			source_changed;
+	bool			bad_statless_params;
 };
 
 static inline struct vicodec_ctx *file2ctx(struct file *file)
@@ -190,10 +191,10 @@ static int device_process(struct vicodec_ctx *ctx,
 		}
 		ctx->cur_req = src_req;
 		v4l2_ctrl_request_setup(src_req, &ctx->hdl);
-		v4l2_ctrl_request_complete(src_req, &ctx->hdl);
-
-		pr_info("%s: stateless not decoding, just experimenting\n", __func__);
-		return -1;
+		if (ctx->bad_statless_params) {
+			pr_info("%s: bad stateless params\n", __func__);
+			return -EINVAL;
+		}
 	}
 	p_dst = vb2_plane_vaddr(&dst_vb->vb2_buf, 0);
 	pr_info("dafna: %s dst is %p, size is %lu\n",__func__,p_dst, vb2_plane_size(&dst_vb->vb2_buf, 0));
@@ -223,6 +224,9 @@ static int device_process(struct vicodec_ctx *ctx,
 		ret = v4l2_fwht_decode(state, p_src, p_dst);
 		if (ret < 0)
 			return ret;
+		if (!ctx->is_stateless)
+			copy_cap_to_ref(p_dst, ctx->state.info, &ctx->state);
+
 		vb2_set_plane_payload(&dst_vb->vb2_buf, 0, q_dst->sizeimage);
 	}
 
@@ -335,6 +339,12 @@ static void device_run(void *priv)
 		ctx->comp_has_next_frame = false;
 	}
 	v4l2_m2m_buf_done(dst_buf, state);
+	if (ctx->is_stateless) {
+		struct media_request *src_req;
+		src_req = src_buf->vb2_buf.req_obj.req;
+		if (src_req)
+			v4l2_ctrl_request_complete(src_req, &ctx->hdl);
+	}
 	ctx->comp_size = 0;
 	ctx->header_size = 0;
 	ctx->comp_magic_cnt = 0;
@@ -1335,10 +1345,11 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 	}
 
 	/*
-	 * source change event is relevant only for the decoder
+	 * source change event is relevant only for the stateful decoder
 	 * in the compressed stream
 	 */
-	if (ctx->is_enc || !V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
+	if (ctx->is_stateless || ctx->is_enc ||
+	    !V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
 		v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
 		return;
 	}
@@ -1582,6 +1593,15 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct vicodec_ctx *ctx = container_of(ctrl->handler,
 					       struct vicodec_ctx, hdl);
+	struct media_request *src_req;
+	struct vb2_v4l2_buffer *src_buf;
+	struct vb2_v4l2_buffer *ref_v4l2_buf;
+	u8 *ref_buf;
+	struct v4l2_ctrl_fwht_params* params;
+	struct vb2_queue *vq_out;
+	struct fwht_raw_frame *ref_frame;
+	int idx;
+
 	pr_info("dafna: %s\n",__func__);
 
 	pr_info("%s: ctrl->handler = %p, name = %s\n", __func__, ctrl->handler, ctrl->name);
@@ -1596,41 +1616,58 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 		ctx->state.p_frame_qp = ctrl->val;
 		return 0;
 	case VICODEC_CID_STATELESS_FWHT:
-		pr_info("%s: stateless ctrl!\n", __func__);
-		struct media_request *src_req;
-		struct vb2_v4l2_buffer *src_buf;
-		struct v4l2_ctrl_fwht_params* params =
-			(struct v4l2_ctrl_fwht_params*) ctrl->p_cur.p;
-		struct vb2_queue *vq_out = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
-				V4L2_BUF_TYPE_VIDEO_OUTPUT);
-		struct vb2_v4l2_buffer *ref_buf;
-		struct ref_frame *ref_frame = &ctx->state.ref_frame;
+		params = (struct v4l2_ctrl_fwht_params*) ctrl->p_new.p;
+		vq_out = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
+					  V4L2_BUF_TYPE_VIDEO_OUTPUT);
+		ref_frame = &ctx->state.ref_frame;
 
+		pr_info("%s: stateless ctrl!\n", __func__);
 		src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 		if (!src_buf)
 			return 0;
 		src_req = src_buf->vb2_buf.req_obj.req;
 		if (src_req != ctx->cur_req)
 			return 0;
-		ref_frame->luma = NULL;
-		ref_frame->cb = NULL;
-		ref_frame->cr = NULL;
-		ref_frame->alpha = NULL;
+
+		pr_info("%s: got %ux%u\n", __func__,
+			params->width, params->height);
+
+		if(params->width > ctx->state.coded_width ||
+		   params->height > ctx->state.coded_height) {
+			pr_info("%s: bad w/h max allowed %ux%u\n", __func__,
+				ctx->state.coded_width, ctx->state.coded_height);
+			ctx->bad_statless_params = true;
+			return 0;
+		}
+		/*
+		 * if backward_ref_ts is 0, it means there is no
+		 * ref frame, so just return
+		 */
+		if(params->backward_ref_ts == 0) {
+			pr_info("%s: back ts is 0\n", __func__);
+			ctx->state.visible_width = params->width;
+			ctx->state.visible_height = params->height;
+			return 0;
+		}
+		pr_info("%s: back ts =  %llu\n", __func__, params->backward_ref_ts);
+		idx = vb2_find_timestamp(vq_out, params->backward_ref_ts, 0);
+		if (idx < 0) {
+			pr_info("%s: wrong idx\n", __func__);
+			ctx->bad_statless_params = true;
+			return 0;
+		}
+		pr_info("%s: got idx %d\n", __func__, idx);
+		ref_v4l2_buf = v4l2_m2m_dst_buf_by_idx(ctx->fh.m2m_ctx, idx);
+		if (!ref_v4l2_buf) {
+			pr_info("%s: could not get buf from idx\n", __func__);
+			ctx->bad_statless_params = true;
+			return 0;
+		}
+		ref_buf = vb2_plane_vaddr(&ref_v4l2_buf->vb2_buf, 0);
 		ctx->state.visible_width = params->width;
 		ctx->state.visible_height = params->height;
+		copy_cap_to_ref(ref_buf, ctx->state.info, &ctx->state);
 
-		int idx = vb2_find_timestamp(vq_out, params->backward_ref_ts, 0);
-		if (idx < 0)
-			return 0;
-		pr_info("%s: got idx %d\n", __func__, idx);
-		ref_buf = v4l2_m2m_buf_by_idx(vq_out, idx);
-		if (!ref_buf)
-			return 0;
-
-		ref_frame->luma = vb2_plane_vaddr(&ref_buf->vb2_buf, 0);
-
-		//pr_info("%s: wxh = %ux%u back_ts=%lu\n", __func__, params->width,
-		//	params->height, params->backward_ref_ts);
 		return 0;
 	}
 	return -EINVAL;
@@ -1745,6 +1782,29 @@ static int vicodec_open(struct file *file)
 
 	pr_info("%s: stateless.vfd = %p is statless: %u\n",__func__, &dev->stateless_dec.vfd, ctx->is_stateless);
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
+	if (ctx->is_enc) {
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_enc.m2m_dev,
+				ctx, &queue_init);
+		ctx->lock = &dev->stateful_enc.lock;
+	} else if (ctx->is_stateless) {
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateless_dec.m2m_dev,
+				ctx, &queue_init);
+		ctx->lock = &dev->stateless_dec.lock;
+	} else {
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_dec.m2m_dev,
+				ctx, &queue_init);
+		ctx->lock = &dev->stateful_dec.lock;
+	}
+
+	if (IS_ERR(ctx->fh.m2m_ctx)) {
+		pr_info("dafna: %s ctx m2m err\n",__func__);
+		rc = PTR_ERR(ctx->fh.m2m_ctx);
+
+		v4l2_fh_exit(&ctx->fh);
+		kfree(ctx);
+		goto open_unlock;
+	}
+
 	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	hdl = &ctx->hdl;
@@ -1792,30 +1852,6 @@ static int vicodec_open(struct file *file)
 	}
 
 	ctx->state.colorspace = V4L2_COLORSPACE_REC709;
-
-	if (ctx->is_enc) {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_enc.m2m_dev,
-						    ctx, &queue_init);
-		ctx->lock = &dev->stateful_enc.lock;
-	} else if (ctx->is_stateless) {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateless_dec.m2m_dev,
-						    ctx, &queue_init);
-		ctx->lock = &dev->stateless_dec.lock;
-	} else {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_dec.m2m_dev,
-						    ctx, &queue_init);
-		ctx->lock = &dev->stateful_dec.lock;
-	}
-
-	if (IS_ERR(ctx->fh.m2m_ctx)) {
-		pr_info("dafna: %s ctx m2m err\n",__func__);
-		rc = PTR_ERR(ctx->fh.m2m_ctx);
-
-		v4l2_ctrl_handler_free(hdl);
-		v4l2_fh_exit(&ctx->fh);
-		kfree(ctx);
-		goto open_unlock;
-	}
 
 	v4l2_fh_add(&ctx->fh);
 

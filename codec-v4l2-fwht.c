@@ -79,6 +79,34 @@ const struct v4l2_fwht_pixfmt_info *v4l2_fwht_get_pixfmt(u32 idx)
 	return v4l2_fwht_pixfmts + idx;
 }
 
+void copy_cap_to_ref(u8 *cap, const struct v4l2_fwht_pixfmt_info *info,
+		     struct v4l2_fwht_state *state)
+{
+	int plane_idx;
+	u8 *p_ref = state->ref_frame.buf;
+	for (plane_idx = 0; plane_idx < info->planes_num; plane_idx++) {
+		int i;
+		bool is_chroma_plane = plane_idx == 1 || plane_idx == 2;
+		unsigned int h_div = is_chroma_plane ? info->height_div : 1;
+		unsigned int w_div = is_chroma_plane ? info->width_div : 1;
+		unsigned int step = is_chroma_plane ? info->chroma_step :
+			info->luma_alpha_step;
+		unsigned int stride_div =
+			(info->planes_num == 3 && plane_idx > 0) ? 2 : 1;
+
+		u8 *row_dst = cap;
+		u8 *row_ref = p_ref;
+
+		for (i = 0; i < state->visible_height / h_div; i++) {
+			memcpy(row_ref, row_dst, step * state->visible_width / w_div);
+			row_ref += step * state->coded_width / w_div;
+			row_dst += state->stride / stride_div;
+		}
+		cap += (state->stride / stride_div) * (state->coded_height / h_div);
+		p_ref += (step * state->coded_width / w_div) * (state->coded_height / h_div);
+	}
+}
+
 static int prepare_raw_frame(struct fwht_raw_frame *rf,
 			 const struct v4l2_fwht_pixfmt_info *info, u8 *buf,
 			 unsigned int size)
@@ -90,18 +118,6 @@ static int prepare_raw_frame(struct fwht_raw_frame *rf,
 	rf->chroma_step = info->chroma_step;
 	rf->alpha = NULL;
 	rf->components_num = info->components_num;
-
-	pr_info("dafna: %s: V4L2_PIX_FMT is %s coded wxh: %ux%u\n",__func__, id_fmt_to_str(info->id),state->coded_width, state->coded_height);
-	pr_info("dafna: %s: div: %ux%u\n",__func__, info->width_div,info->height_div);
-	pr_info("dafna: %s: rf.luma_alpha_step = %u size = %u\n",__func__, rf.luma_alpha_step, size);
-	/*
-	pr_info("dafna: %s: p_in[0] = %u\n",__func__, p_in[0]);
-	pr_info("dafna: %s: p_in[1] = %u\n",__func__, p_in[1]);
-
-	pr_info("dafna: %s: p_in[s*%u*1] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*1]);
-	pr_info("dafna: %s: p_in[s*%u*2] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*2]);
-	pr_info("dafna: %s: p_in[s*%u*3] = %u\n",__func__, rf.luma_alpha_step, p_in[rf.luma_alpha_step*state->coded_width*3]);
-	*/
 
 	switch (info->id) {
 	case V4L2_PIX_FMT_GREY:
@@ -192,6 +208,16 @@ static int prepare_raw_frame(struct fwht_raw_frame *rf,
 	return 0;
 }
 
+int prepare_ref_frame(struct v4l2_fwht_state *state)
+{
+	const struct v4l2_fwht_pixfmt_info *info = state->info;
+	unsigned int ref_size = state->coded_width * state->coded_height *
+		info->luma_alpha_step;
+
+	return prepare_raw_frame(&state->ref_frame, info, state->ref_frame.buf,
+				 ref_size);
+}
+
 int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 {
 	unsigned int size = state->stride * state->coded_height;
@@ -216,6 +242,9 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	cf.p_frame_qp = state->p_frame_qp;
 	cf.rlc_data = (__be16 *)(p_out + sizeof(*p_hdr));
 
+	pr_info("dafna: %s: V4L2_PIX_FMT is %s coded wxh: %ux%u\n",__func__, id_fmt_to_str(info->id),state->coded_width, state->coded_height);
+	pr_info("dafna: %s: div: %ux%u\n",__func__, info->width_div,info->height_div);
+	pr_info("dafna: %s: rf.luma_alpha_step = %u size = %u\n",__func__, rf.luma_alpha_step, size);
 	pr_info("dafna: %s: p_in = %p, luma = %p cr = %p cb = %p\n",__func__,p_in, rf.luma, rf.cr, rf.cb);
 	pr_info("dafna: %s: luma-p_in = %ld, cr-luma = %ld cb-cr = %ld\n",__func__,rf.luma-p_in, rf.cr-rf.luma, rf.cb-rf.cr);
 
@@ -267,10 +296,8 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 
 int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 {
-	unsigned int i, plane_idx;
 	u32 flags;
 	struct fwht_cframe cf;
-	u8 *p_ref;
 	unsigned int components_num = 3;
 	unsigned int version;
 	const struct v4l2_fwht_pixfmt_info *info;
@@ -347,37 +374,14 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	ref_size = state->coded_width * state->coded_height *
 		info->luma_alpha_step;
 
-	if (prepare_raw_frame(&state->ref_frame, info, state->ref_frame.buf,
-			      ref_size))
+	if (prepare_ref_frame(state))
 		return -EINVAL;
+
 	if (!fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
 			       state->visible_width, state->visible_height,
 			       state->coded_width, &dst_rf, state->stride,
 			       dst_chroma_stride))
 		return -EINVAL;
-
-	pr_info("%s: preparing raw frame\n", __func__);
-	p_ref = state->ref_frame.buf;
-	for (plane_idx = 0; plane_idx < info->planes_num; plane_idx++) {
-		bool is_chroma_plane = plane_idx == 1 || plane_idx == 2;
-		unsigned int h_div = is_chroma_plane ? info->height_div : 1;
-		unsigned int w_div = is_chroma_plane ? info->width_div : 1;
-		unsigned int step = is_chroma_plane ? info->chroma_step :
-			info->luma_alpha_step;
-		unsigned int stride_div =
-			(info->planes_num == 3 && plane_idx > 0) ? 2 : 1;
-
-		u8 *row_dst = p_out;
-		u8 *row_ref = p_ref;
-
-		for (i = 0; i < state->visible_height / h_div; i++) {
-			memcpy(row_ref, row_dst, step * state->visible_width / w_div);
-			row_ref += step * state->coded_width / w_div;
-			row_dst += state->stride / stride_div;
-		}
-		p_out += (state->stride / stride_div) * (state->coded_height / h_div);
-		p_ref += (step * state->coded_width / w_div) * (state->coded_height / h_div);
-	}
 
 	return 0;
 }
