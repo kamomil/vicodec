@@ -173,12 +173,24 @@ static int device_process(struct vicodec_ctx *ctx,
 	int ret;
 
 	q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-	if (ctx->is_enc) {
+	if (ctx->is_stateless) {
+		unsigned int comp_frame_size;
+
 		p_src = vb2_plane_vaddr(&src_vb->vb2_buf, 0);
+
+		memcpy(&state->header, p_src, sizeof(struct fwht_cframe_hdr));
+		comp_frame_size = ntohl(ctx->state.header.size);
+		if (comp_frame_size > ctx->comp_max_size)
+			return -EINVAL;
+		memcpy(state->compressed_frame,
+		       p_src + sizeof(struct fwht_cframe_hdr), comp_frame_size);
 	}
-	else {
+
+	if (ctx->is_enc)
+		p_src = vb2_plane_vaddr(&src_vb->vb2_buf, 0);
+	else
 		p_src = state->compressed_frame;
-	}
+
 	if (ctx->is_stateless) {
 		struct media_request *src_req;
 		/* Apply request(s) controls if needed. */
@@ -228,10 +240,6 @@ static int device_process(struct vicodec_ctx *ctx,
 
 		vb2_set_plane_payload(&dst_vb->vb2_buf, 0, q_dst->sizeimage);
 	}
-
-	dst_vb->sequence = q_dst->sequence++;
-	dst_vb->flags &= ~V4L2_BUF_FLAG_LAST;
-	v4l2_m2m_buf_copy_data(src_vb, dst_vb, !ctx->is_enc);
 
 	return 0;
 }
@@ -306,18 +314,24 @@ static void device_run(void *priv)
 	struct vicodec_ctx *ctx = priv;
 	struct vicodec_dev *dev = ctx->dev;
 	struct vb2_v4l2_buffer *src_buf, *dst_buf;
-	struct vicodec_q_data *q_src;
+	struct vicodec_q_data *q_src, *q_dst;
 	u32 state;
 
 	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	dst_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 	pr_info("dafna: %s ctx = %p src = %p, dst = %p\n",__func__, ctx, src_buf, dst_buf);
 	q_src = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
+	q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 
 	state = VB2_BUF_STATE_DONE;
 	pr_info("dafna: %s: about to call device_process\n",__func__);
 	if (device_process(ctx, src_buf, dst_buf))
 		state = VB2_BUF_STATE_ERROR;
+
+	dst_buf->sequence = q_dst->sequence++;
+	dst_buf->flags &= ~V4L2_BUF_FLAG_LAST;
+	v4l2_m2m_buf_copy_data(src_buf, dst_buf, !ctx->is_enc);
+
 	ctx->last_dst_buf = dst_buf;
 
 	spin_lock(ctx->lock);
@@ -1599,7 +1613,6 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 	struct v4l2_ctrl_fwht_params* params;
 	struct vb2_queue *vq_cap;
 	struct fwht_raw_frame *ref_frame;
-	int idx;
 
 	pr_info("dafna: %s\n",__func__);
 

@@ -341,8 +341,10 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	flags = ntohl(state->header.flags);
 
 	if (version == FWHT_VERSION) {
-		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc)
+		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc) {
+			
 			return -EINVAL;
+		}
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
 				FWHT_FL_COMPONENTS_NUM_OFFSET);
 	}
