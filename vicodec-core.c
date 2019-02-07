@@ -128,7 +128,6 @@ struct vicodec_ctx {
 	struct vicodec_q_data   q_data[2];
 	struct v4l2_fwht_state	state;
 
-	
 	u32			cur_buf_offset;
 	u32			comp_max_size;
 	u32			comp_size;
@@ -1595,10 +1594,10 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 					       struct vicodec_ctx, hdl);
 	struct media_request *src_req;
 	struct vb2_v4l2_buffer *src_buf;
-	struct vb2_v4l2_buffer *ref_v4l2_buf;
+	struct vb2_buffer *ref_vb2_buf;
 	u8 *ref_buf;
 	struct v4l2_ctrl_fwht_params* params;
-	struct vb2_queue *vq_out;
+	struct vb2_queue *vq_cap;
 	struct fwht_raw_frame *ref_frame;
 	int idx;
 
@@ -1616,9 +1615,11 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 		ctx->state.p_frame_qp = ctrl->val;
 		return 0;
 	case VICODEC_CID_STATELESS_FWHT:
+		if (!ctx->cur_req)
+			return 0;
 		params = (struct v4l2_ctrl_fwht_params*) ctrl->p_new.p;
-		vq_out = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
-					  V4L2_BUF_TYPE_VIDEO_OUTPUT);
+		vq_cap = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
+					  V4L2_BUF_TYPE_VIDEO_CAPTURE);
 		ref_frame = &ctx->state.ref_frame;
 
 		pr_info("%s: stateless ctrl!\n", __func__);
@@ -1650,7 +1651,8 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 			return 0;
 		}
 		pr_info("%s: back ts =  %llu\n", __func__, params->backward_ref_ts);
-		idx = vb2_find_timestamp(vq_out, params->backward_ref_ts, 0);
+		ref_vb2_buf = vb2_find_timestamp_buf(vq_cap, params->backward_ref_ts, 0);
+		/*
 		if (idx < 0) {
 			pr_info("%s: wrong idx\n", __func__);
 			ctx->bad_statless_params = true;
@@ -1658,12 +1660,14 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 		}
 		pr_info("%s: got idx %d\n", __func__, idx);
 		ref_v4l2_buf = v4l2_m2m_dst_buf_by_idx(ctx->fh.m2m_ctx, idx);
-		if (!ref_v4l2_buf) {
-			pr_info("%s: could not get buf from idx\n", __func__);
+		*/
+		if (!ref_vb2_buf) {
+			pr_info("%s: could not get buf from ts\n", __func__);
 			ctx->bad_statless_params = true;
 			return 0;
 		}
-		ref_buf = vb2_plane_vaddr(&ref_v4l2_buf->vb2_buf, 0);
+
+		ref_buf = vb2_plane_vaddr(ref_vb2_buf, 0);
 		ctx->state.visible_width = params->width;
 		ctx->state.visible_height = params->height;
 		copy_cap_to_ref(ref_buf, ctx->state.info, &ctx->state);
@@ -1782,29 +1786,6 @@ static int vicodec_open(struct file *file)
 
 	pr_info("%s: stateless.vfd = %p is statless: %u\n",__func__, &dev->stateless_dec.vfd, ctx->is_stateless);
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
-	if (ctx->is_enc) {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_enc.m2m_dev,
-				ctx, &queue_init);
-		ctx->lock = &dev->stateful_enc.lock;
-	} else if (ctx->is_stateless) {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateless_dec.m2m_dev,
-				ctx, &queue_init);
-		ctx->lock = &dev->stateless_dec.lock;
-	} else {
-		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_dec.m2m_dev,
-				ctx, &queue_init);
-		ctx->lock = &dev->stateful_dec.lock;
-	}
-
-	if (IS_ERR(ctx->fh.m2m_ctx)) {
-		pr_info("dafna: %s ctx m2m err\n",__func__);
-		rc = PTR_ERR(ctx->fh.m2m_ctx);
-
-		v4l2_fh_exit(&ctx->fh);
-		kfree(ctx);
-		goto open_unlock;
-	}
-
 	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	hdl = &ctx->hdl;
@@ -1853,6 +1834,30 @@ static int vicodec_open(struct file *file)
 
 	ctx->state.colorspace = V4L2_COLORSPACE_REC709;
 
+	if (ctx->is_enc) {
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_enc.m2m_dev,
+						    ctx, &queue_init);
+		ctx->lock = &dev->stateful_enc.lock;
+	} else if (ctx->is_stateless) {
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateless_dec.m2m_dev,
+						    ctx, &queue_init);
+		ctx->lock = &dev->stateless_dec.lock;
+	} else {
+		ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->stateful_dec.m2m_dev,
+						    ctx, &queue_init);
+		ctx->lock = &dev->stateful_dec.lock;
+	}
+
+	if (IS_ERR(ctx->fh.m2m_ctx)) {
+		pr_info("dafna: %s ctx m2m err\n",__func__);
+		rc = PTR_ERR(ctx->fh.m2m_ctx);
+
+		v4l2_ctrl_handler_free(hdl);
+		v4l2_fh_exit(&ctx->fh);
+		kfree(ctx);
+		goto open_unlock;
+	}
+
 	v4l2_fh_add(&ctx->fh);
 
 open_unlock:
@@ -1887,6 +1892,8 @@ static int vicodec_request_validate(struct media_request *req)
 	unsigned int count;
 
 	pr_info("%s: start req = %p\n", __func__, req);
+	pr_info("%s: start for_each\n", __func__);
+
 	list_for_each_entry(obj, &req->objects, list) {
 		struct vb2_buffer *vb;
 		pr_info("%s: obj = %p\n", __func__, obj);

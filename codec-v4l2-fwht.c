@@ -84,6 +84,7 @@ void copy_cap_to_ref(u8 *cap, const struct v4l2_fwht_pixfmt_info *info,
 {
 	int plane_idx;
 	u8 *p_ref = state->ref_frame.buf;
+
 	for (plane_idx = 0; plane_idx < info->planes_num; plane_idx++) {
 		int i;
 		bool is_chroma_plane = plane_idx == 1 || plane_idx == 2;
@@ -382,6 +383,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 			       state->coded_width, &dst_rf, state->stride,
 			       dst_chroma_stride))
 		return -EINVAL;
+	copy_cap_to_ref(p_out, info, state);
 
 	return 0;
 }
