@@ -327,12 +327,24 @@ static void device_run(void *priv)
 	pr_info("dafna: %s: about to call device_process\n",__func__);
 	if (device_process(ctx, src_buf, dst_buf))
 		state = VB2_BUF_STATE_ERROR;
-
-	dst_buf->sequence = q_dst->sequence++;
+	else
+		dst_buf->sequence = q_dst->sequence++;
 	dst_buf->flags &= ~V4L2_BUF_FLAG_LAST;
 	v4l2_m2m_buf_copy_data(src_buf, dst_buf, !ctx->is_enc);
 
 	ctx->last_dst_buf = dst_buf;
+	if (ctx->is_stateless) {
+		struct media_request *src_req;
+
+		src_req = src_buf->vb2_buf.req_obj.req;
+		if (src_req) {
+			pr_info("%s: completing req\n", __func__);
+			v4l2_ctrl_request_complete(src_req, &ctx->hdl);
+		} else {
+			pr_info("%s: req is null\n", __func__);
+		}
+	}
+
 
 	spin_lock(ctx->lock);
 	if (!ctx->comp_has_next_frame && src_buf == ctx->last_src_buf) {
@@ -352,12 +364,6 @@ static void device_run(void *priv)
 		ctx->comp_has_next_frame = false;
 	}
 	v4l2_m2m_buf_done(dst_buf, state);
-	if (ctx->is_stateless) {
-		struct media_request *src_req;
-		src_req = src_buf->vb2_buf.req_obj.req;
-		if (src_req)
-			v4l2_ctrl_request_complete(src_req, &ctx->hdl);
-	}
 	ctx->comp_size = 0;
 	ctx->header_size = 0;
 	ctx->comp_magic_cnt = 0;
@@ -1413,6 +1419,8 @@ static void vicodec_return_bufs(struct vb2_queue *q, u32 state)
 			vbuf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 		if (vbuf == NULL)
 			return;
+		v4l2_ctrl_request_complete(vbuf->vb2_buf.req_obj.req,
+                                           &ctx->hdl);
 		spin_lock(ctx->lock);
 		v4l2_m2m_buf_done(vbuf, state);
 		spin_unlock(ctx->lock);

@@ -342,15 +342,17 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 
 	if (version == FWHT_VERSION) {
 		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc) {
-			
+			pr_info("%s: pixenc dont match\n", __func__);
 			return -EINVAL;
 		}
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
 				FWHT_FL_COMPONENTS_NUM_OFFSET);
 	}
 
-	if (components_num != info->components_num)
+	if (components_num != info->components_num) {
+		pr_info("%s: comp num dont match\n", __func__);
 		return -EINVAL;
+	}
 
 	state->colorspace = ntohl(state->header.colorspace);
 	state->xfer_func = ntohl(state->header.xfer_func);
@@ -367,8 +369,10 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		return -EINVAL;
 	}
 
-	if (prepare_raw_frame(&dst_rf, info, p_out, dst_size))
+	if (prepare_raw_frame(&dst_rf, info, p_out, dst_size)) {
+		pr_info("%s: prepare dst failed\n", __func__);
 		return -EINVAL;
+	}
 	if (info->id == V4L2_PIX_FMT_YUV420 ||
 	    info->id == V4L2_PIX_FMT_YVU420 ||
 	    info->id == V4L2_PIX_FMT_YUV422P)
@@ -377,14 +381,18 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	ref_size = state->coded_width * state->coded_height *
 		info->luma_alpha_step;
 
-	if (prepare_ref_frame(state))
+	if (prepare_ref_frame(state)) {
+		pr_info("%s: prepare ref failed\n", __func__);
 		return -EINVAL;
+	}
 
 	if (!fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
 			       state->visible_width, state->visible_height,
 			       state->coded_width, &dst_rf, state->stride,
-			       dst_chroma_stride))
+			       dst_chroma_stride)) {
+		pr_info("%s: decoding failed\n", __func__);
 		return -EINVAL;
+	}
 	copy_cap_to_ref(p_out, info, state);
 
 	return 0;
