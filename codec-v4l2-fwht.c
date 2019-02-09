@@ -209,16 +209,6 @@ static int prepare_raw_frame(struct fwht_raw_frame *rf,
 	return 0;
 }
 
-int prepare_ref_frame(struct v4l2_fwht_state *state)
-{
-	const struct v4l2_fwht_pixfmt_info *info = state->info;
-	unsigned int ref_size = state->coded_width * state->coded_height *
-		info->luma_alpha_step;
-
-	return prepare_raw_frame(&state->ref_frame, info, state->ref_frame.buf,
-				 ref_size);
-}
-
 int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 {
 	unsigned int size = state->stride * state->coded_height;
@@ -334,7 +324,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	/* TODO: support resolution changes */
 	if (ntohl(state->header.width)  != state->visible_width ||
 	    ntohl(state->header.height) != state->visible_height) {
-		pr_info("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
+		pr_err("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
 		return -EINVAL;
 	}
 
@@ -342,7 +332,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 
 	if (version == FWHT_VERSION) {
 		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc) {
-			pr_info("%s: pixenc dont match\n", __func__);
+			pr_err("%s: pixenc dont match\n", __func__);
 			return -EINVAL;
 		}
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
@@ -350,7 +340,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	}
 
 	if (components_num != info->components_num) {
-		pr_info("%s: comp num dont match\n", __func__);
+		pr_err("%s: comp num dont match\n", __func__);
 		return -EINVAL;
 	}
 
@@ -365,12 +355,12 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
 	if (hdr_width_div != info->width_div ||
 	    hdr_height_div != info->height_div) {
-		pr_info("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
+		pr_err("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
 		return -EINVAL;
 	}
 
 	if (prepare_raw_frame(&dst_rf, info, p_out, dst_size)) {
-		pr_info("%s: prepare dst failed\n", __func__);
+		pr_err("%s: prepare dst failed\n", __func__);
 		return -EINVAL;
 	}
 	if (info->id == V4L2_PIX_FMT_YUV420 ||
@@ -381,8 +371,9 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	ref_size = state->coded_width * state->coded_height *
 		info->luma_alpha_step;
 
-	if (prepare_ref_frame(state)) {
-		pr_info("%s: prepare ref failed\n", __func__);
+	if (prepare_raw_frame(&state->ref_frame, info, state->ref_frame.buf,
+			      ref_size)) {
+		pr_err("%s: prepare ref failed\n", __func__);
 		return -EINVAL;
 	}
 
@@ -390,10 +381,8 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 			       state->visible_width, state->visible_height,
 			       state->coded_width, &dst_rf, state->stride,
 			       dst_chroma_stride)) {
-		pr_info("%s: decoding failed\n", __func__);
+		pr_err("%s: decoding failed\n", __func__);
 		return -EINVAL;
 	}
-	copy_cap_to_ref(p_out, info, state);
-
 	return 0;
 }
