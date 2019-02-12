@@ -45,6 +45,9 @@ const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div,
 {
 	unsigned int i;
 
+	pr_info("%s: div %ux%u comp_num %u pixenc 0x%x start_idx %u\n", __func__, width_div,
+			height_div, components_num, pixenc, start_idx);
+
 	for (i = 0; i < ARRAY_SIZE(v4l2_fwht_pixfmts); i++) {
 		if (v4l2_fwht_pixfmts[i].width_div == width_div &&
 		    v4l2_fwht_pixfmts[i].height_div == height_div &&
@@ -55,6 +58,7 @@ const struct v4l2_fwht_pixfmt_info *v4l2_fwht_default_fmt(u32 width_div,
 			start_idx--;
 		}
 	}
+	pr_info("%s: no info found\n", __func__);
 	return NULL;
 }
 
@@ -225,10 +229,15 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	    info->id == V4L2_PIX_FMT_YVU420 ||
 	    info->id == V4L2_PIX_FMT_YUV422P)
 		chroma_stride /= 2;
-
 	cf.i_frame_qp = state->i_frame_qp;
 	cf.p_frame_qp = state->p_frame_qp;
 	cf.rlc_data = (__be16 *)(p_out + sizeof(*p_hdr));
+
+	pr_info("dafna: %s: V4L2_PIX_FMT is %s coded wxh: %ux%u\n",__func__, id_fmt_to_str(info->id),state->coded_width, state->coded_height);
+	pr_info("dafna: %s: div: %ux%u\n",__func__, info->width_div,info->height_div);
+	pr_info("dafna: %s: rf.luma_alpha_step = %u size = %u\n",__func__, rf.luma_alpha_step, size);
+	pr_info("dafna: %s: p_in = %p, luma = %p cr = %p cb = %p\n",__func__,p_in, rf.luma, rf.cr, rf.cb);
+	pr_info("dafna: %s: luma-p_in = %ld, cr-luma = %ld cb-cr = %ld\n",__func__,rf.luma-p_in, rf.cr-rf.luma, rf.cb-rf.cr);
 
 	encoding = fwht_encode_frame(&rf, &state->ref_frame, &cf,
 				     !state->gop_cnt,
@@ -261,6 +270,12 @@ int v4l2_fwht_encode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		flags |= FWHT_FL_CHROMA_FULL_HEIGHT;
 	if (rf.width_div == 1)
 		flags |= FWHT_FL_CHROMA_FULL_WIDTH;
+
+	pr_info("luma %scomp\n", flags & FWHT_FL_LUMA_IS_UNCOMPRESSED ? " " :"not-");
+	pr_info("cb %scomp\n", flags & FWHT_FL_CB_IS_UNCOMPRESSED ? " " :"not-");
+	pr_info("cr %scomp\n", flags & FWHT_FL_CR_IS_UNCOMPRESSED ? " " :"not-");
+	pr_info("rf.div: %ux%u\n", rf.width_div, rf.height_div);
+
 	p_hdr->flags = htonl(flags);
 	p_hdr->colorspace = htonl(state->colorspace);
 	p_hdr->xfer_func = htonl(state->xfer_func);
@@ -283,6 +298,7 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	unsigned int dst_size = state->stride * state->coded_height;
 	unsigned int ref_size;
 
+	pr_info("dafna: %s\n",__func__);
 	if (!state->info)
 		return -EINVAL;
 
@@ -299,22 +315,34 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	    state->header.magic2 != FWHT_MAGIC2)
 		return -EINVAL;
 
+
+	pr_info("dafna: %s: FMT is %s coded wxh: %ux%u\n",__func__, id_fmt_to_str(info->id),
+			state->coded_width, state->coded_height);
+	pr_info("dafna: %s state->visible_width %u state->visible_height %u stride = %u\n",
+			__func__, state->visible_width, state->visible_height,state->coded_width);
+
 	/* TODO: support resolution changes */
 	if (ntohl(state->header.width)  != state->visible_width ||
-	    ntohl(state->header.height) != state->visible_height)
+	    ntohl(state->header.height) != state->visible_height) {
+		pr_err("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
 		return -EINVAL;
+	}
 
 	flags = ntohl(state->header.flags);
 
 	if (version == FWHT_VERSION) {
-		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc)
+		if ((flags & FWHT_FL_PIXENC_MSK) != info->pixenc) {
+			pr_err("%s: pixenc dont match\n", __func__);
 			return -EINVAL;
+		}
 		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
 				FWHT_FL_COMPONENTS_NUM_OFFSET);
 	}
 
-	if (components_num != info->components_num)
+	if (components_num != info->components_num) {
+		pr_err("%s: comp num dont match\n", __func__);
 		return -EINVAL;
+	}
 
 	state->colorspace = ntohl(state->header.colorspace);
 	state->xfer_func = ntohl(state->header.xfer_func);
@@ -326,11 +354,15 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 	hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
 	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
 	if (hdr_width_div != info->width_div ||
-	    hdr_height_div != info->height_div)
+	    hdr_height_div != info->height_div) {
+		pr_err("%s: dim dont match: %ux%u\n", __func__, ntohl(state->header.width), ntohl(state->header.height));
 		return -EINVAL;
+	}
 
-	if (prepare_raw_frame(&dst_rf, info, p_out, dst_size))
+	if (prepare_raw_frame(&dst_rf, info, p_out, dst_size)) {
+		pr_err("%s: prepare dst failed\n", __func__);
 		return -EINVAL;
+	}
 	if (info->id == V4L2_PIX_FMT_YUV420 ||
 	    info->id == V4L2_PIX_FMT_YVU420 ||
 	    info->id == V4L2_PIX_FMT_YUV422P)
@@ -340,13 +372,17 @@ int v4l2_fwht_decode(struct v4l2_fwht_state *state, u8 *p_in, u8 *p_out)
 		info->luma_alpha_step;
 
 	if (prepare_raw_frame(&state->ref_frame, info, state->ref_frame.buf,
-			      ref_size))
+			      ref_size)) {
+		pr_err("%s: prepare ref failed\n", __func__);
 		return -EINVAL;
+	}
 
 	if (!fwht_decode_frame(&cf, &state->ref_frame, flags, components_num,
 			       state->visible_width, state->visible_height,
 			       state->coded_width, &dst_rf, state->stride,
-			       dst_chroma_stride))
+			       dst_chroma_stride)) {
+		pr_err("%s: decoding failed\n", __func__);
 		return -EINVAL;
+	}
 	return 0;
 }
