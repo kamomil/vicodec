@@ -117,7 +117,6 @@ struct vicodec_ctx {
 	bool			is_enc;
 	bool			is_stateless;
 	spinlock_t		*lock;
-	struct media_request	*cur_req;
 
 	struct v4l2_ctrl_handler hdl;
 
@@ -161,6 +160,23 @@ static struct vicodec_q_data *get_q_data(struct vicodec_ctx *ctx,
 	return NULL;
 }
 
+static bool validate_by_version(unsigned int flags, unsigned int version)
+{
+	if (!version || version > FWHT_VERSION)
+		return false;
+
+	if (version == FWHT_VERSION) {
+		unsigned int components_num = 1 +
+			((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
+			 FWHT_FL_COMPONENTS_NUM_OFFSET);
+		unsigned int pixenc = flags & FWHT_FL_PIXENC_MSK;
+
+		if (components_num == 0 || components_num > 4 || !pixenc)
+			return false;
+	}
+	return true;
+}
+
 static const struct v4l2_fwht_pixfmt_info *
 info_from_stateless_params(const struct v4l2_ctrl_fwht_params *params)
 {
@@ -175,56 +191,15 @@ info_from_stateless_params(const struct v4l2_ctrl_fwht_params *params)
 		pixenc = (params->flags & FWHT_FL_PIXENC_MSK);
 	}
 	return v4l2_fwht_default_fmt(width_div, height_div,
-			components_num, pixenc, 0);
+				     components_num, pixenc, 0);
 }
 
 
-static const struct v4l2_fwht_pixfmt_info *
-info_from_header(const struct fwht_cframe_hdr *p_hdr)
-{
-	unsigned int flags = ntohl(p_hdr->flags);
-	unsigned int width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
-	unsigned int height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
-	unsigned int components_num = 3;
-	unsigned int pixenc = 0;
-	unsigned int version = ntohl(p_hdr->version);
-
-	if (version == FWHT_VERSION) {
-		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
-				FWHT_FL_COMPONENTS_NUM_OFFSET);
-		pixenc = (flags & FWHT_FL_PIXENC_MSK);
-	}
-	return v4l2_fwht_default_fmt(width_div, height_div,
-			components_num, pixenc, 0);
-}
-
-static void update_capture_data_from_header(struct vicodec_ctx *ctx)
-{
-	struct vicodec_q_data *q_dst = get_q_data(ctx,
-			V4L2_BUF_TYPE_VIDEO_CAPTURE);
+static void update_state_from_header(struct vicodec_ctx *ctx) {
 	const struct fwht_cframe_hdr *p_hdr = &ctx->state.header;
-	const struct v4l2_fwht_pixfmt_info *info = info_from_header(p_hdr);
-	unsigned int flags = ntohl(p_hdr->flags);
-	unsigned int hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
-	unsigned int hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
 
-	q_dst->info = info;
-	q_dst->visible_width = ntohl(p_hdr->width);
-	q_dst->visible_height = ntohl(p_hdr->height);
-
-	if (ctx->is_stateless) {
-		ctx->state.visible_width = ntohl(p_hdr->width);
-		ctx->state.visible_height = ntohl(p_hdr->height);
-	} else {
-		q_dst->coded_width = vic_round_dim(q_dst->visible_width,
-				hdr_width_div);
-		q_dst->coded_height = vic_round_dim(q_dst->visible_height,
-				hdr_height_div);
-	}
-
-	q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
-		q_dst->info->sizeimage_mult / q_dst->info->sizeimage_div;
-
+	ctx->state.visible_width = ntohl(p_hdr->width);
+	ctx->state.visible_height = ntohl(p_hdr->height);
 	ctx->state.colorspace = ntohl(p_hdr->colorspace);
 	ctx->state.xfer_func = ntohl(p_hdr->xfer_func);
 	ctx->state.ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
@@ -256,7 +231,7 @@ static int device_process(struct vicodec_ctx *ctx,
 			return -EFAULT;
 		}
 		v4l2_ctrl_request_setup(src_req, &ctx->hdl);
-		update_capture_data_from_header(ctx);
+		update_state_from_header(ctx);
 
 		comp_frame_size = ntohl(ctx->state.header.size);
 		memcpy(state->compressed_frame, p_out, comp_frame_size);
@@ -459,21 +434,23 @@ static void job_remove_src_buf(struct vicodec_ctx *ctx, u32 state)
 	spin_unlock(ctx->lock);
 }
 
-static bool validate_by_version(unsigned int flags, unsigned int version)
+static const struct v4l2_fwht_pixfmt_info *
+info_from_header(const struct fwht_cframe_hdr *p_hdr)
 {
-	if (!version || version > FWHT_VERSION)
-		return false;
+	unsigned int flags = ntohl(p_hdr->flags);
+	unsigned int width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
+	unsigned int height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
+	unsigned int components_num = 3;
+	unsigned int pixenc = 0;
+	unsigned int version = ntohl(p_hdr->version);
 
 	if (version == FWHT_VERSION) {
-		unsigned int components_num = 1 +
-			((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
-			 FWHT_FL_COMPONENTS_NUM_OFFSET);
-		unsigned int pixenc = flags & FWHT_FL_PIXENC_MSK;
-
-		if (components_num == 0 || components_num > 4 || !pixenc)
-			return false;
+		components_num = 1 + ((flags & FWHT_FL_COMPONENTS_NUM_MSK) >>
+				FWHT_FL_COMPONENTS_NUM_OFFSET);
+		pixenc = (flags & FWHT_FL_PIXENC_MSK);
 	}
-	return true;
+	return v4l2_fwht_default_fmt(width_div, height_div,
+				     components_num, pixenc, 0);
 }
 
 static bool is_header_valid(const struct fwht_cframe_hdr *p_hdr)
@@ -494,6 +471,38 @@ static bool is_header_valid(const struct fwht_cframe_hdr *p_hdr)
 	if (!info)
 		return false;
 	return true;
+}
+
+static void update_capture_data_from_header(struct vicodec_ctx *ctx)
+{
+	struct vicodec_q_data *q_dst = get_q_data(ctx,
+						  V4L2_BUF_TYPE_VIDEO_CAPTURE);
+	const struct fwht_cframe_hdr *p_hdr = &ctx->state.header;
+	const struct v4l2_fwht_pixfmt_info *info = info_from_header(p_hdr);
+	unsigned int flags = ntohl(p_hdr->flags);
+	unsigned int hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
+	unsigned int hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
+
+	/*
+	 * This function should not be used by a statless codec since
+	 * it changes values in q_data that are not request specific
+	 */
+	WARN_ON(ctx->is_stateless);
+
+	q_dst->info = info;
+	q_dst->visible_width = ntohl(p_hdr->width);
+	q_dst->visible_height = ntohl(p_hdr->height);
+	q_dst->coded_width = vic_round_dim(q_dst->visible_width, hdr_width_div);
+	q_dst->coded_height = vic_round_dim(q_dst->visible_height,
+					    hdr_height_div);
+
+	q_dst->sizeimage = q_dst->coded_width * q_dst->coded_height *
+		q_dst->info->sizeimage_mult / q_dst->info->sizeimage_div;
+	ctx->state.colorspace = ntohl(p_hdr->colorspace);
+
+	ctx->state.xfer_func = ntohl(p_hdr->xfer_func);
+	ctx->state.ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
+	ctx->state.quantization = ntohl(p_hdr->quantization);
 }
 
 static void set_last_buffer(struct vb2_v4l2_buffer *dst_buf,
@@ -1617,7 +1626,7 @@ static int vicodec_try_ctrl(struct v4l2_ctrl *ctrl)
 			return -EINVAL;
 		if (params->comp_frame_size > ctx->comp_max_size)
 			return -EINVAL;
-		if (!validate_by_version(params->flags, params->version)
+		if (!validate_by_version(params->flags, params->version))
 			return -EINVAL;
 		if (info_from_stateless_params(params) != q_dst->info)
 			return -EINVAL;
