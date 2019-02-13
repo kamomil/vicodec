@@ -204,11 +204,6 @@ static void update_state_from_header(struct vicodec_ctx *ctx) {
 	ctx->state.xfer_func = ntohl(p_hdr->xfer_func);
 	ctx->state.ycbcr_enc = ntohl(p_hdr->ycbcr_enc);
 	ctx->state.quantization = ntohl(p_hdr->quantization);
-	pr_info("%s: dim %ux%u div %ux%u\n",__func__,
-			q_dst->visible_width,
-			q_dst->visible_height, hdr_width_div, hdr_height_div);
-	pr_info("%s: %u\n",__func__, info->id);
-	pr_info("%s: dafna format is '%s'\n",__func__,id_fmt_to_str(info->id));
 }
 
 static int device_process(struct vicodec_ctx *ctx,
@@ -1711,6 +1706,9 @@ static void update_header_from_stateless_params(struct vicodec_ctx *ctx,
 {
 	struct fwht_cframe_hdr *p_hdr = &ctx->state.header;
 
+	p_hdr->magic1 = FWHT_MAGIC1;
+	p_hdr->magic2 = FWHT_MAGIC2;
+	p_hdr->version = htonl(params->version);
 	p_hdr->width = htonl(params->width);
 	p_hdr->height = htonl(params->height);
 	p_hdr->flags = htonl(params->flags);
