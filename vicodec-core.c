@@ -238,8 +238,10 @@ static int device_process(struct vicodec_ctx *ctx,
 			return -EFAULT;
 		}
 		ret = v4l2_ctrl_request_setup(src_req, &ctx->hdl);
-		if (ret)
+		if (ret) {
+			pr_err("%s: v4l2_ctrl_request_complete returned %d\n", __func__, ret);
 			return ret;
+		}
 		update_state_from_header(ctx);
 
 		comp_frame_size = ntohl(ctx->state.header.size);
@@ -259,17 +261,25 @@ static int device_process(struct vicodec_ctx *ctx,
 
 			ref_buf_idx = vb2_find_timestamp(vq_cap,
 							 ctx->state.ref_frame_ts, 0);
-			if (ref_buf_idx < 0)
+			if (ref_buf_idx < 0) {
+				pr_err("%s: could not find ref buf\n", __func__);
 				return -EINVAL;
+			}
 
 			ref_vb2_buf = vq_cap->bufs[ref_buf_idx];
-			if (ref_vb2_buf->state == VB2_BUF_STATE_ERROR)
+			if (ref_vb2_buf->state == VB2_BUF_STATE_ERROR) {
+				pr_err("%s: propagating error of ref frame\n", __func__);
 				ret = -EINVAL;
+			}
 			ref_buf = vb2_plane_vaddr(ref_vb2_buf, 0);
 			copy_cap_to_ref(ref_buf, ctx->state.info, &ctx->state);
+		} else {
+			pr_err("%s: NOT PCODED\n", __func__);
 		}
+
 	}
 	p_dst = vb2_plane_vaddr(&dst_vb->vb2_buf, 0);
+	pr_info("dafna: %s dst is %p, size is %lu\n",__func__,p_dst, vb2_plane_size(&dst_vb->vb2_buf, 0));
 	if (!p_src || !p_dst) {
 		v4l2_err(&dev->v4l2_dev,
 			 "Acquiring kernel pointers to buffers failed\n");
@@ -282,6 +292,7 @@ static int device_process(struct vicodec_ctx *ctx,
 
 		q_src = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
 		state->info = q_src->info;
+		pr_info("dafna: %s: aboout to call v4l2_fwht_encode\n", __func__);
 		comp_sz_or_errcode = v4l2_fwht_encode(state, p_src, p_dst);
 		if (comp_sz_or_errcode < 0)
 			return comp_sz_or_errcode;
@@ -291,12 +302,17 @@ static int device_process(struct vicodec_ctx *ctx,
 		unsigned int comp_frame_size = ntohl(ctx->state.header.size);
 
 		q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-		if (comp_frame_size > ctx->comp_max_size)
+		if (comp_frame_size > ctx->comp_max_size) {
+			pr_err("%s: comp_frmame_size too big\n", __func__);
 			return -EINVAL;
+		}
 		state->info = q_dst->info;
+		pr_info("dafna: %s: aboout to call v4l2_fwht_decode\n", __func__);
 		ret = v4l2_fwht_decode(state, p_src, p_dst);
-		if (ret < 0)
+		if (ret < 0) {
+			pr_err("%s: decode failed\n", __func__);
 			return ret;
+		}
 		if (!ctx->is_stateless)
 			copy_cap_to_ref(p_dst, ctx->state.info, &ctx->state);
 
@@ -384,10 +400,12 @@ static void device_run(void *priv)
 	dst_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 	src_req = src_buf->vb2_buf.req_obj.req;
 
+	pr_info("dafna: %s ctx = %p src = %p, dst = %p\n",__func__, ctx, src_buf, dst_buf);
 	q_src = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
 	q_dst = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
 
 	state = VB2_BUF_STATE_DONE;
+	pr_info("dafna: %s: about to call device_process\n",__func__);
 	if (device_process(ctx, src_buf, dst_buf))
 		state = VB2_BUF_STATE_ERROR;
 	else
@@ -399,6 +417,7 @@ static void device_run(void *priv)
 
 	spin_lock(ctx->lock);
 	if (!ctx->comp_has_next_frame && src_buf == ctx->last_src_buf) {
+		pr_info("%s: dafna: setting buffer to be last\n", __func__);
 		dst_buf->flags |= V4L2_BUF_FLAG_LAST;
 		v4l2_event_queue_fh(&ctx->fh, &eos_event);
 	}
@@ -524,6 +543,7 @@ static void set_last_buffer(struct vb2_v4l2_buffer *dst_buf,
 	struct vicodec_q_data *q_dst = get_q_data(ctx,
 						  V4L2_BUF_TYPE_VIDEO_CAPTURE);
 
+	pr_info("%s: setting last buffer %p (%p)\n", __func__, dst_buf, &dst_buf->vb2_buf);
 	vb2_set_plane_payload(&dst_buf->vb2_buf, 0, 0);
 	dst_buf->sequence = q_dst->sequence++;
 
@@ -576,6 +596,7 @@ restart:
 	}
 
 	comp_frame_size = ntohl(ctx->state.header.size);
+	pr_info("dafna: %s size in header is %u\n", __func__, comp_frame_size);
 
 	/*
 	 * The current scanned frame might be the first frame of a new
@@ -591,6 +612,7 @@ restart:
 
 		if (copy > p_src + sz - p)
 			copy = p_src + sz - p;
+		pr_info("dafna: %s copying AGAIN AGAIN %u to compressed_frame\n", __func__,copy);
 
 		memcpy(ctx->state.compressed_frame + ctx->comp_size,
 		       p, copy);
@@ -624,6 +646,7 @@ restart:
 	hdr_width_div = (flags & FWHT_FL_CHROMA_FULL_WIDTH) ? 1 : 2;
 	hdr_height_div = (flags & FWHT_FL_CHROMA_FULL_HEIGHT) ? 1 : 2;
 
+	pr_info("%s: flags is 0x%x div %ux%u\n", __func__,flags, hdr_width_div, hdr_height_div);
 	if (ntohl(ctx->state.header.width) != q_dst->visible_width ||
 	    ntohl(ctx->state.header.height) != q_dst->visible_height ||
 	    !q_dst->info ||
@@ -637,6 +660,7 @@ restart:
 		struct vb2_v4l2_buffer *dst_buf =
 			v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 
+		pr_info("%s: SOURCE_CHANGE detected\n", __func__);
 		update_capture_data_from_header(ctx);
 		ctx->first_source_change_sent = true;
 		v4l2_event_queue_fh(&ctx->fh, &rs_event);
@@ -676,6 +700,7 @@ static int enum_fmt(struct v4l2_fmtdesc *f, struct vicodec_ctx *ctx,
 {
 	bool is_uncomp = (ctx->is_enc && is_out) || (!ctx->is_enc && !is_out);
 
+	pr_info("enum_fmt '%s' is_out = %d\n", V4L2_TYPE_IS_OUTPUT(f->type) ? "OUT" : "CAP", is_out);
 	if (V4L2_TYPE_IS_MULTIPLANAR(f->type) && !multiplanar)
 		return -EINVAL;
 	if (!V4L2_TYPE_IS_MULTIPLANAR(f->type) && multiplanar)
@@ -737,6 +762,7 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 
 	if (!info)
 		info = v4l2_fwht_get_pixfmt(0);
+	pr_info("dafna: vidioc_g_fmt for type '%s'\n", V4L2_TYPE_IS_OUTPUT(f->type) ? "OUT" : "CAP");
 
 	switch (f->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
@@ -750,7 +776,10 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		pix->pixelformat = info->id;
 		pix->bytesperline = q_data->coded_width *
 					info->bytesperline_mult;
+		pr_info("dafna: %s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix->bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix->sizeimage = q_data->sizeimage;
+		pr_info("dafna: %s: sizeimage = %u\n",__func__,pix->sizeimage);
 		pix->colorspace = ctx->state.colorspace;
 		pix->xfer_func = ctx->state.xfer_func;
 		pix->ycbcr_enc = ctx->state.ycbcr_enc;
@@ -769,6 +798,8 @@ static int vidioc_g_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		pix_mp->num_planes = 1;
 		pix_mp->plane_fmt[0].bytesperline =
 				q_data->coded_width * info->bytesperline_mult;
+		pr_info("%s: bytesperline(%u) = coded_width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix_mp->plane_fmt[0].bytesperline,q_data->coded_width,info ? info->bytesperline_mult : 0);
 		pix_mp->plane_fmt[0].sizeimage = q_data->sizeimage;
 		pix_mp->colorspace = ctx->state.colorspace;
 		pix_mp->xfer_func = ctx->state.xfer_func;
@@ -803,10 +834,12 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 	struct v4l2_plane_pix_format *plane;
 	const struct v4l2_fwht_pixfmt_info *info = &pixfmt_fwht;
 
+	pr_info("dafna: %s: type '%s'\n", __func__,  V4L2_TYPE_IS_OUTPUT(f->type) ? "OUT" : "CAP");
 	switch (f->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
 		pix = &f->fmt.pix;
+		pr_info("%s: before %ux%u ",__func__, pix->height,pix->width);
 		if (pix->pixelformat != V4L2_PIX_FMT_FWHT)
 			info = find_fmt(pix->pixelformat);
 
@@ -821,6 +854,11 @@ static int vidioc_try_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 			pix->width * info->bytesperline_mult;
 		pix->sizeimage = pix->width * pix->height *
 			info->sizeimage_mult / info->sizeimage_div;
+		pr_info("%s: dafna format from user is '%s'\n",__func__,id_fmt_to_str(pix->pixelformat));
+		pr_info("%s: %ux%u d = %ux%u",__func__, pix->height,pix->width,info->height_div,info->width_div);
+		pr_info("%s: set bytesperline(%u) = width(%u) * bytesperline_mult (%u)\n",__func__,
+				pix->bytesperline,pix->width,info->bytesperline_mult);
+
 		if (pix->pixelformat == V4L2_PIX_FMT_FWHT)
 			pix->sizeimage += sizeof(struct fwht_cframe_hdr);
 		break;
@@ -862,6 +900,7 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 	struct vicodec_ctx *ctx = file2ctx(file);
 	struct v4l2_pix_format_mplane *pix_mp;
 	struct v4l2_pix_format *pix;
+	pr_info("dafna: %s\n",__func__);
 
 	switch (f->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
@@ -899,12 +938,14 @@ static int vidioc_try_fmt_vid_out(struct file *file, void *priv,
 	struct vicodec_ctx *ctx = file2ctx(file);
 	struct v4l2_pix_format_mplane *pix_mp;
 	struct v4l2_pix_format *pix;
+	pr_info("dafna: %s\n",__func__);
 
 	switch (f->type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
 		if (multiplanar)
 			return -EINVAL;
 		pix = &f->fmt.pix;
+		pr_info("%s: before %ux%u ",__func__, pix->height,pix->width);
 		pix->pixelformat = !ctx->is_enc ? V4L2_PIX_FMT_FWHT :
 				   find_fmt(pix->pixelformat)->id;
 		if (!pix->colorspace)
@@ -934,6 +975,7 @@ static int vidioc_s_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 	struct v4l2_pix_format_mplane *pix_mp;
 	struct v4l2_pix_format *pix;
 
+	pr_info("dafna: %s: type '%s'\n", __func__,  V4L2_TYPE_IS_OUTPUT(f->type) ? "OUT" : "CAP");
 	vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type);
 	if (!vq)
 		return -EINVAL;
@@ -956,6 +998,7 @@ static int vidioc_s_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		if (vb2_is_busy(vq) && fmt_changed)
 			return -EBUSY;
 
+		pr_info("%s: dafna format is '%s'\n",__func__,id_fmt_to_str(pix->pixelformat));
 		if (pix->pixelformat == V4L2_PIX_FMT_FWHT)
 			q_data->info = &pixfmt_fwht;
 		else
@@ -994,6 +1037,10 @@ static int vidioc_s_fmt(struct vicodec_ctx *ctx, struct v4l2_format *f)
 		q_data->visible_height = q_data->coded_height;
 
 
+	pr_info("%s: Setting format for type %d, coded wxh: %dx%d, visible wxh: %dx%d, fourcc: %08x\n",
+			__func__, f->type, q_data->coded_width, q_data->coded_height,
+			q_data->visible_width, q_data->visible_height,
+			q_data->info->id);
 	dprintk(ctx->dev,
 		"Setting format for type %d, coded wxh: %dx%d, visible wxh: %dx%d, fourcc: %08x\n",
 		f->type, q_data->coded_width, q_data->coded_height,
@@ -1022,7 +1069,9 @@ static int vidioc_s_fmt_vid_out(struct file *file, void *priv,
 	struct v4l2_pix_format_mplane *pix_mp;
 	struct v4l2_pix_format *pix;
 	int ret;
+	pr_info("dafna: in vidioc_s_fmt_vid_out\n");
 
+	pr_info("%s: before %ux%u ",__func__, f->fmt.pix.height,f->fmt.pix.width);
 	ret = vidioc_try_fmt_vid_out(file, priv, f);
 	if (ret)
 		return ret;
@@ -1139,7 +1188,10 @@ static void vicodec_mark_last_buf(struct vicodec_ctx *ctx)
 
 	spin_lock(ctx->lock);
 	ctx->last_src_buf = v4l2_m2m_last_src_buf(ctx->fh.m2m_ctx);
+	pr_info("%s: dafna: called last src buf is %p\n", __func__, ctx->last_src_buf);
 	if (!ctx->last_src_buf && ctx->last_dst_buf) {
+		pr_info("%s: dafna: setting %p as last\n", __func__, ctx->last_dst_buf);
+	
 		ctx->last_dst_buf->flags |= V4L2_BUF_FLAG_LAST;
 		v4l2_event_queue_fh(&ctx->fh, &eos_event);
 	}
@@ -1197,6 +1249,7 @@ static int vicodec_decoder_cmd(struct file *file, void *fh,
 	if (ret < 0)
 		return ret;
 
+	pr_info("%s: dafna calling vicodec_mark_last_buf\n", __func__);
 	vicodec_mark_last_buf(ctx);
 	return 0;
 }
@@ -1393,11 +1446,13 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 		return;
 	}
 
+	pr_info("%s start looking for first header\n", __func__);
 	do {
 		enum vb2_buffer_state state =
 			get_next_header(ctx, &p, p_src + sz - p);
 
 		if (ctx->header_size < sizeof(struct fwht_cframe_hdr)) {
+			pr_info("%s header_size < sizof(hdr)\n", __func__);
 			v4l2_m2m_buf_done(vbuf, state);
 			return;
 		}
@@ -1409,6 +1464,7 @@ static void vicodec_buf_queue(struct vb2_buffer *vb)
 		 */
 		if (!header_valid) {
 			p = p - sizeof(struct fwht_cframe_hdr) + 1;
+			pr_info("%s heade invalid\n", __func__);
 			if (p < p_src)
 				p = p_src;
 			ctx->header_size = 0;
@@ -1475,6 +1531,10 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	unsigned int total_planes_size;
 	u8 *new_comp_frame;
 
+	pr_info("dafna: %s buffer type: %s, codec type: %s\n", __func__,
+		V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP", ctx->is_enc ? "enc" : "dec");
+	pr_info("dafna: %s coded wxh %ux%u \n", __func__, q_data->coded_width, q_data->coded_height);
+
 	if (!info)
 		return -EINVAL;
 
@@ -1501,6 +1561,7 @@ static int vicodec_start_streaming(struct vb2_queue *q,
 	state->coded_height = q_data->coded_height;
 	state->stride = q_data->coded_width *
 				info->bytesperline_mult;
+	pr_info("dafna: state visible = %ux%u, coded = %ux%u\n", state->visible_width, state->visible_height, state->coded_width, state->coded_height);
 
 	state->ref_frame.buf = kvmalloc(total_planes_size, GFP_KERNEL);
 	state->ref_frame.luma = state->ref_frame.buf;
@@ -1548,6 +1609,8 @@ static void vicodec_stop_streaming(struct vb2_queue *q)
 {
 	struct vicodec_ctx *ctx = vb2_get_drv_priv(q);
 
+	pr_info("%s: dafna: calling vicodec_return_bufs for q = %p (%s)\n", __func__, q,
+			V4L2_TYPE_IS_OUTPUT(q->type) ? "OUT" : "CAP");
 	vicodec_return_bufs(q, VB2_BUF_STATE_ERROR);
 
 	if ((!V4L2_TYPE_IS_OUTPUT(q->type) && !ctx->is_enc) ||
@@ -1593,6 +1656,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 {
 	struct vicodec_ctx *ctx = priv;
 	int ret;
+	pr_info("dafna: %s\n",__func__);
 
 	src_vq->type = (multiplanar ?
 			V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE :
@@ -1650,14 +1714,26 @@ static int vicodec_try_ctrl(struct v4l2_ctrl *ctrl)
 		if (params->width > q_dst->coded_width ||
 		    params->width < MIN_WIDTH ||
 		    params->height > q_dst->coded_height ||
-		    params->height < MIN_HEIGHT)
+		    params->height < MIN_HEIGHT) {
+			pr_err("%s: got %ux%u, max alowed %ux%u\n", __func__,
+								  params->width, params->height,
+								  q_dst->coded_width,
+								  q_dst->coded_height);
 			return -EINVAL;
-		if (!validate_by_version(params->flags, params->version))
+		}
+		if (!validate_by_version(params->flags, params->version)) {
+			pr_err("%s validate ver failed\n", __func__);
 			return -EINVAL;
-		if (!validate_stateless_params_flags(params, q_dst->info))
+		}
+		if (!validate_stateless_params_flags(params, q_dst->info)) {
+			pr_err("%s info from params is wrong\n", __func__);
 			return -EINVAL;
-		if (params->comp_frame_size > total_frame_size(q_dst))
+		}
+		if (params->comp_frame_size > total_frame_size(q_dst)) {
+			pr_err("%s comp size %u, max alowed %u\n", __func__, params->comp_frame_size,
+					total_frame_size(q_dst));
 			return -EINVAL;
+		}
 	default:
 		return 0;
 	}
@@ -1689,6 +1765,9 @@ static int vicodec_s_ctrl(struct v4l2_ctrl *ctrl)
 					       struct vicodec_ctx, hdl);
 	struct v4l2_ctrl_fwht_params *params;
 
+	pr_info("dafna: %s\n",__func__);
+
+	pr_info("%s: ctrl->handler = %p, name = %s\n", __func__, ctrl->handler, ctrl->name);
 	switch (ctrl->id) {
 	case V4L2_CID_MPEG_VIDEO_GOP_SIZE:
 		ctx->state.gop_size = ctrl->val;
@@ -1755,10 +1834,12 @@ static int vicodec_open(struct file *file)
 	unsigned int size;
 	int rc = 0;
 
+	pr_info("dafna: %s current: %s %u, vfd = %p\n",__func__, current->comm, current->pid, vfd);
 	if (mutex_lock_interruptible(vfd->lock))
 		return -ERESTARTSYS;
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx) {
+		pr_info("dafna: %s no mem\n",__func__);
 		rc = -ENOMEM;
 		goto open_unlock;
 	}
@@ -1768,18 +1849,22 @@ static int vicodec_open(struct file *file)
 	else if (vfd == &dev->stateless_dec.vfd)
 		ctx->is_stateless = true;
 
+	pr_info("%s: stateless.vfd = %p is statless: %u\n",__func__, &dev->stateless_dec.vfd, ctx->is_stateless);
 	v4l2_fh_init(&ctx->fh, video_devdata(file));
 	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 	hdl = &ctx->hdl;
+	pr_info("%s: hdl = %p\n", __func__, hdl);
 	v4l2_ctrl_handler_init(hdl, 4);
 	v4l2_ctrl_new_std(hdl, &vicodec_ctrl_ops, V4L2_CID_MPEG_VIDEO_GOP_SIZE,
 			  1, 16, 1, 10);
+	pr_info("%s: calling new_custom\n", __func__);
 	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_i_frame, NULL);
 	v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_p_frame, NULL);
 	if (ctx->is_stateless)
 		v4l2_ctrl_new_custom(hdl, &vicodec_ctrl_stateless_state, NULL);
 	if (hdl->error) {
+		pr_info("dafna: %s hdl err\n",__func__);
 		rc = hdl->error;
 		v4l2_ctrl_handler_free(hdl);
 		kfree(ctx);
@@ -1829,6 +1914,7 @@ static int vicodec_open(struct file *file)
 	}
 
 	if (IS_ERR(ctx->fh.m2m_ctx)) {
+		pr_info("dafna: %s ctx m2m err\n",__func__);
 		rc = PTR_ERR(ctx->fh.m2m_ctx);
 
 		v4l2_ctrl_handler_free(hdl);
@@ -1849,6 +1935,7 @@ static int vicodec_release(struct file *file)
 	struct video_device *vfd = video_devdata(file);
 	struct vicodec_ctx *ctx = file2ctx(file);
 
+	pr_info("%s: dafna: call v4l2_m2m_ctx_release vfd = %p\n", __func__, vfd);
 	v4l2_fh_del(&ctx->fh);
 	v4l2_fh_exit(&ctx->fh);
 	v4l2_ctrl_handler_free(&ctx->hdl);
@@ -1856,6 +1943,7 @@ static int vicodec_release(struct file *file)
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 	mutex_unlock(vfd->lock);
 	kfree(ctx);
+	pr_info("%s: dafna: returning 0\n", __func__);
 
 	return 0;
 }
@@ -1868,11 +1956,15 @@ static int vicodec_request_validate(struct media_request *req)
 	struct v4l2_ctrl *ctrl;
 	unsigned int count;
 
+	pr_info("%s: start req = %p\n", __func__, req);
+	pr_info("%s: start for_each\n", __func__);
+
 	list_for_each_entry(obj, &req->objects, list) {
 		struct vb2_buffer *vb;
 
 		if (vb2_request_object_is_buffer(obj)) {
 			vb = container_of(obj, struct vb2_buffer, req_obj);
+			pr_info("%s: vb = %p\n", __func__, vb);
 			ctx = vb2_get_drv_priv(vb->vb2_queue);
 
 			break;
@@ -1898,6 +1990,7 @@ static int vicodec_request_validate(struct media_request *req)
 	parent_hdl = &ctx->hdl;
 
 	hdl = v4l2_ctrl_request_hdl_find(req, parent_hdl);
+	pr_info("%s: hdl = %p, parent_hdl = %p\n", __func__, hdl, parent_hdl);
 	if (!hdl) {
 		v4l2_info(&ctx->dev->v4l2_dev, "Missing codec control\n");
 		return -ENOENT;
@@ -1956,6 +2049,7 @@ static int register_instance(struct vicodec_dev *dev,
 		return PTR_ERR(dev_instance->m2m_dev);
 	}
 
+	pr_info("%s: vfd = %p\n", __func__, &dev_instance->vfd);
 	dev_instance->vfd = vicodec_videodev;
 	vfd = &dev_instance->vfd;
 	vfd->lock = &dev_instance->mutex;
@@ -1988,6 +2082,7 @@ static int vicodec_probe(struct platform_device *pdev)
 	struct vicodec_dev *dev;
 	int ret;
 
+	pr_info("dafna: %s current: %s %u\n",__func__, current->comm, current->pid);
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -2051,6 +2146,7 @@ static int vicodec_probe(struct platform_device *pdev)
 		goto unreg_m2m_sl_dec_mc;
 	}
 #endif
+	pr_info("%s: end ok\n", __func__);
 	return 0;
 
 #ifdef CONFIG_MEDIA_CONTROLLER
@@ -2073,6 +2169,7 @@ unreg_sf_enc:
 unreg_dev:
 	v4l2_device_unregister(&dev->v4l2_dev);
 
+	pr_info("%s: end not so good ret=%d\n", __func__, ret);
 	return ret;
 }
 
