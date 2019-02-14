@@ -28,31 +28,6 @@
 
 #define ALL_ZEROS 15
 
-const char* id_fmt_to_str(u32 id){
-
-	switch(id) {
-		case V4L2_PIX_FMT_YUV420:
-			return "V4L2_PIX_FMT_YUV420";
-		case V4L2_PIX_FMT_YVU420:
-			return "V4L2_PIX_FMT_YVU420";
-		case V4L2_PIX_FMT_YUV422P:
-			return "V4L2_PIX_FMT_YUV422P";
-		case V4L2_PIX_FMT_BGR24:
-			return "V4L2_PIX_FMT_BGR24";
-		case V4L2_PIX_FMT_RGB24:
-			return "V4L2_PIX_FMT_RGB24";
-		case V4L2_PIX_FMT_ARGB32:
-			return "V4L2_PIX_FMT_ARGB32";
-		case V4L2_PIX_FMT_ABGR32:
-			return "V4L2_PIX_FMT_ABGR32";
-		case V4L2_PIX_FMT_GREY:
-			return "V4L2_PIX_FMT_GREY";
-		case V4L2_PIX_FMT_FWHT:
-			return "V4L2_PIX_FMT_FWHT";
-	}
-	return "NOT SET";
-};
-
 static const uint8_t zigzag[64] = {
 	0,
 	1,  8,
